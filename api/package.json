@@ -1,0 +1,33 @@
+{
+  "name": "zhizhi-api",
+  "version": "1.0.0",
+  "description": "知之ZHIZHI API - Vercel Serverless Functions",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "dev:node": "ts-node server.ts",
+    "build": "tsc",
+    "deploy": "vercel --prod",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "vercel",
+    "serverless",
+    "supabase",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "@vercel/node": "^3.0.12",
+    "dotenv": "^16.3.1",
+    "lunar-javascript": "^1.7.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vercel": "^33.0.1"
+  }
+}
