@@ -40,6 +40,14 @@ import baziCreateHandler from './api/bazi/create';
 import baziListHandler   from './api/bazi/list';
 import baziByIdHandler   from './api/bazi/[id]';
 
+// 运势模块（对应 simple.md §5 首页模块）
+import fortuneDailyHandler from './api/fortune/daily';
+
+// 洞察模块（对应 simple.md §6 洞察分析模块）
+import insightCardsHandler    from './api/insights/cards';
+import insightAnalysisHandler from './api/insights/analysis';
+import insightDetailHandler   from './api/insights/detail/[category]';
+
 
 // ─────────────────────────────────────────────────────────────
 // 路由表（精确路径匹配）
@@ -66,6 +74,13 @@ const routes: Record<string, any> = {
   // 八字模块（精确路径，动态 /api/bazi/:id 在下方处理）
   '/api/bazi/create': baziCreateHandler,
   '/api/bazi/list':   baziListHandler,
+
+  // 运势模块
+  '/api/fortune/daily': fortuneDailyHandler,
+
+  // 洞察模块（精确路径，动态 /api/insights/detail/:category 在下方处理）
+  '/api/insights/cards':    insightCardsHandler,
+  '/api/insights/analysis': insightAnalysisHandler,
 };
 
 
@@ -98,6 +113,15 @@ const server = http.createServer(async (req, res) => {
     if (id && id !== 'list' && id !== 'create') {
       handler = baziByIdHandler;
       params = { id };
+    }
+  }
+
+  // Step 3: 动态路由匹配（/api/insights/detail/:category）
+  if (!handler && pathname.startsWith('/api/insights/detail/')) {
+    const category = pathname.replace('/api/insights/detail/', '');
+    if (category) {
+      handler = insightDetailHandler;
+      params = { category };
     }
   }
 
