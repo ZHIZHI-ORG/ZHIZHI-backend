@@ -33,7 +33,10 @@ import resetPasswordHandler   from './api/auth/reset-password';
 import deleteAccountHandler   from './api/auth/delete-account';
 
 // 用户模块（对应 simple.md §7 用户资料模块）
-import profileHandler from './api/user/profile';
+import profileHandler          from './api/user/profile';
+import inviteCodeHandler       from './api/user/invite-code';
+import invitationsHandler      from './api/user/invitations';
+import profileExtendedHandler  from './api/user/profile/extended';
 
 // 八字模块（对应 simple.md §4 八字档案模块）
 import baziCreateHandler from './api/bazi/create';
@@ -69,7 +72,10 @@ const routes: Record<string, any> = {
   '/api/auth/delete-account':    deleteAccountHandler,
 
   // 用户模块
-  '/api/user/profile': profileHandler,
+  '/api/user/profile':          profileHandler,
+  '/api/user/invite-code':      inviteCodeHandler,
+  '/api/user/invitations':      invitationsHandler,
+  '/api/user/profile/extended': profileExtendedHandler,
 
   // 八字模块（精确路径，动态 /api/bazi/:id 在下方处理）
   '/api/bazi/create': baziCreateHandler,
@@ -204,5 +210,11 @@ server.listen(PORT, () => {
   console.log(`   POST /api/auth/logout`);
   console.log(`   POST /api/auth/reset-password`);
   console.log(`   POST /api/auth/delete-account`);
+  console.log(`\n👤 用户模块接口（simple.md §7）:`);
+  console.log(`   GET  /api/user/profile`);
+  console.log(`   PUT  /api/user/profile`);
+  console.log(`   GET  /api/user/invite-code`);
+  console.log(`   GET  /api/user/invitations`);
+  console.log(`   PUT  /api/user/profile/extended`);
   console.log(`\n按 Ctrl+C 停止\n`);
 });

@@ -60,11 +60,24 @@ export interface UserProfile {
 }
 
 /**
- * 更新用户资料输入
+ * 更新用户资料输入（基础）
  */
 export interface UpdateUserInput {
   display_name?: string;
   avatar_url?: string;
+}
+
+/**
+ * 更新用户扩展资料输入
+ * 对应 PUT /api/user/profile/extended
+ */
+export interface UpdateUserExtendedInput {
+  bio?: string;       // 个人简介
+  location?: string;  // 所在地
+  career?: string;    // 职业
+  school?: string;    // 学校
+  mbti?: string;      // MBTI（如 INTJ）
+  notes?: string;     // 备注/生活事件
 }
 
 /**

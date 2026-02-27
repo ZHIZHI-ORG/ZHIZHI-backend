@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node jsonl转对话记录.js:*)",
+      "Bash(python3:*)",
+      "Bash(node -e:*)",
+      "Bash(node /tmp/debug_oneletter.js:*)",
+      "Bash(/tmp/debug_subagent.js:*)",
+      "Bash(node:*)",
+      "Bash(/tmp/find_in_output.py:*)",
+      "Bash(/tmp/find_tool_result.js:*)",
+      "Bash(/tmp/patch_script.js:*)",
+      "Bash(/tmp/check_compact_content.js:*)"
+    ]
+  }
+}

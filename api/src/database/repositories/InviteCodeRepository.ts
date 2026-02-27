@@ -146,6 +146,43 @@ export class InviteCodeRepository {
 
     return data as InviteUsage[];
   }
+
+  /**
+   * 为用户创建专属邀请码
+   * 码格式：ZZ + 随机6位大写字母+数字，如 "ZZAB12CD"
+   *
+   * @param userId - 码的创建者 user.id
+   * @returns InviteCode
+   */
+  async createForUser(userId: string): Promise<InviteCode> {
+    // 生成唯一邀请码（带重试机制）
+    let code = '';
+    let attempts = 0;
+    while (attempts < 5) {
+      code = 'ZZ' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const existing = await this.findByCode(code);
+      if (!existing) break;
+      attempts++;
+    }
+
+    const { data, error } = await supabase
+      .from(this.codesTable)
+      .insert({
+        code,
+        created_by: userId,
+        max_uses: -1, // 用户邀请码无使用次数限制
+        is_active: true,
+        note: '用户生成的好友邀请码',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`创建用户邀请码失败: ${error.message}`);
+    }
+
+    return data as InviteCode;
+  }
 }
 
 // 导出单例，整个应用共用一个实例
