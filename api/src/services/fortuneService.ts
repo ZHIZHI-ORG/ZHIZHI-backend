@@ -60,6 +60,11 @@ export async function getDailyFortune(userId: string, baziId?: string) {
     date: data.date,
     day_master_card: data.day_master_card,
     scenes: data.scenes,
+    // scenes.advices 已内嵌完整 MediumInsightCard（golden_sentence/detailed_content/followUpQuestions）
+    // 前端首页无需额外接口，直接用 advices 数据展示和展开
+    analysis: Object.fromEntries(
+      data.scenes.map((s) => [s.scene, data.analysis[s.scene]])
+    ),
   };
 }
 
@@ -94,8 +99,8 @@ export async function getInsightAnalysis(userId: string, baziId?: string) {
 }
 
 /**
- * 模块6：获取某维度详细分析（含 bullets 展开内容）
- * 返回完整 AnalysisItem
+ * 模块6：获取某维度详细分析（含 followUpQuestions）
+ * 返回完整 AnalysisItem（MediumInsightCard）
  */
 export async function getInsightDetail(
   userId: string,
@@ -116,3 +121,4 @@ export async function getInsightDetail(
     ...data.analysis[cat],
   };
 }
+

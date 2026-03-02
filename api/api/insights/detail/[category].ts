@@ -4,7 +4,7 @@
  *
  * 依据：simple.md §6
  * 路径参数：category - overall / career / love / health / study
- * 返回：golden_sentence + detailed_content + bullets（含展开内容）
+ * 返回：MediumInsightCard（golden_sentence + detailed_content + followUpQuestions）
  *
  * 同时记录用户行为（view_card），用于后期推荐权重统计
  */
