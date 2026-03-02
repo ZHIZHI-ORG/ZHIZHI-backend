@@ -82,7 +82,7 @@ export async function getInsightCards(userId: string, baziId?: string) {
 
 /**
  * 模块6：获取五维分析概览
- * 返回每个维度的 golden_sentence + detailed_content（不含 bullets）
+ * 返回每个维度第一张卡片的 golden_sentence + detailed_content
  */
 export async function getInsightAnalysis(userId: string, baziId?: string) {
   const data = await getDailyFortuneData(userId, baziId);
@@ -92,15 +92,15 @@ export async function getInsightAnalysis(userId: string, baziId?: string) {
     date: data.date,
     analysis: categories.map((cat) => ({
       category: cat,
-      golden_sentence: data.analysis[cat].golden_sentence,
-      detailed_content: data.analysis[cat].detailed_content,
+      golden_sentence: data.analysis[cat][0].golden_sentence,
+      detailed_content: data.analysis[cat][0].detailed_content,
     })),
   };
 }
 
 /**
  * 模块6：获取某维度详细分析（含 followUpQuestions）
- * 返回完整 AnalysisItem（MediumInsightCard）
+ * 返回该维度全部5张 MediumInsightCard 数组
  */
 export async function getInsightDetail(
   userId: string,
@@ -118,7 +118,7 @@ export async function getInsightDetail(
   return {
     date: data.date,
     category,
-    ...data.analysis[cat],
+    cards: data.analysis[cat],
   };
 }
 
