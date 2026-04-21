@@ -11,7 +11,7 @@
 
 // lunar-javascript 无官方 TS 类型，用 require 绕过 TS 类型检查
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Solar, Lunar: LunarLib } = require('lunar-javascript') as { Solar: any; Lunar: any };
+const { Solar, Lunar: LunarLib, LunarUtil } = require('lunar-javascript') as { Solar: any; Lunar: any; LunarUtil: any };
 
 import { calculateShenSha, FourPillars, ShenShaResult } from './shenShaCalculator';
 
@@ -45,27 +45,43 @@ export interface PillarData {
 /** 大运数据（对应 simple.md §10.5 MajorCycle） */
 export interface MajorCycleData {
   startYear: number;  // 起始年份
+  endYear: number;    // 结束年份
   age: number;        // 起始年龄
+  endAge: number;     // 结束年龄
   stem: string;       // 天干（如"乙"）
   branch: string;     // 地支（如"酉"）
+  ganZhi: string;     // 干支（如"乙酉"）
   tenGod: string;     // 天干十神（如"伤"）
+  xun: string;        // 旬
+  xunKong: string;    // 旬空
+  annualLuck: AnnualLuckData[]; // 该大运下的流年
 }
 
 /** 流年数据（对应 simple.md §10.5 AnnualLuck） */
 export interface AnnualLuckData {
   year: number;           // 年份
+  age: number;            // 年龄
   stem: string;           // 天干
   branch: string;         // 地支
+  ganZhi: string;         // 干支（如"丙午"）
   tenGodTop: string;      // 天干十神
   tenGodBottom: string;   // 地支主气十神
+  xun: string;            // 旬
+  xunKong: string;        // 旬空
+  monthlyLuck: MonthlyLuckData[]; // 该流年下的流月
 }
 
 /** 流月数据（对应 simple.md §10.5 MonthlyLuck） */
 export interface MonthlyLuckData {
   month: number;          // 月份序号（1-12）
+  monthInChinese: string; // 中文月名（如"正"）
   stem: string;           // 天干
   branch: string;         // 地支
+  ganZhi: string;         // 干支（如"庚寅"）
   tenGod: string;         // 天干十神
+  tenGodBottom: string;   // 地支主气十神
+  xun: string;            // 旬
+  xunKong: string;        // 旬空
 }
 
 /** 五行分析 */
@@ -121,6 +137,53 @@ const ZHI_WUXING: Record<string, string> = {
   '巳': '火', '午': '火',
   '申': '金', '酉': '金',
   '丑': '土', '辰': '土', '未': '土', '戌': '土',
+};
+
+const GAN_YIN_YANG: Record<string, boolean> = {
+  '甲': true, '丙': true, '戊': true, '庚': true, '壬': true,
+  '乙': false, '丁': false, '己': false, '辛': false, '癸': false,
+};
+
+const WUXING_GENERATES: Record<string, string> = {
+  '木': '火',
+  '火': '土',
+  '土': '金',
+  '金': '水',
+  '水': '木',
+};
+
+const WUXING_CONTROLS: Record<string, string> = {
+  '木': '土',
+  '土': '水',
+  '水': '火',
+  '火': '金',
+  '金': '木',
+};
+
+const SHI_SHEN_ZHI: Record<string, string> = {
+  '甲子': '正印', '甲丑': '正财', '甲寅': '比肩', '甲卯': '劫财', '甲辰': '偏财', '甲巳': '食神', '甲午': '伤官', '甲未': '正财', '甲申': '七杀', '甲酉': '正官', '甲戌': '偏财', '甲亥': '偏印',
+  '乙子': '偏印', '乙丑': '偏财', '乙寅': '劫财', '乙卯': '比肩', '乙辰': '正财', '乙巳': '伤官', '乙午': '食神', '乙未': '偏财', '乙申': '正官', '乙酉': '七杀', '乙戌': '正财', '乙亥': '正印',
+  '丙子': '正官', '丙丑': '伤官', '丙寅': '偏印', '丙卯': '正印', '丙辰': '食神', '丙巳': '比肩', '丙午': '劫财', '丙未': '伤官', '丙申': '偏财', '丙酉': '正财', '丙戌': '食神', '丙亥': '七杀',
+  '丁子': '七杀', '丁丑': '食神', '丁寅': '正印', '丁卯': '偏印', '丁辰': '伤官', '丁巳': '劫财', '丁午': '比肩', '丁未': '食神', '丁申': '正财', '丁酉': '偏财', '丁戌': '伤官', '丁亥': '正官',
+  '戊子': '正财', '戊丑': '劫财', '戊寅': '七杀', '戊卯': '正官', '戊辰': '比肩', '戊巳': '偏印', '戊午': '正印', '戊未': '劫财', '戊申': '食神', '戊酉': '伤官', '戊戌': '比肩', '戊亥': '偏财',
+  '己子': '偏财', '己丑': '比肩', '己寅': '正官', '己卯': '七杀', '己辰': '劫财', '己巳': '正印', '己午': '偏印', '己未': '比肩', '己申': '伤官', '己酉': '食神', '己戌': '劫财', '己亥': '正财',
+  '庚子': '伤官', '庚丑': '正印', '庚寅': '偏财', '庚卯': '正财', '庚辰': '偏印', '庚巳': '七杀', '庚午': '正官', '庚未': '正印', '庚申': '比肩', '庚酉': '劫财', '庚戌': '偏印', '庚亥': '食神',
+  '辛子': '食神', '辛丑': '偏印', '辛寅': '正财', '辛卯': '偏财', '辛辰': '正印', '辛巳': '正官', '辛午': '七杀', '辛未': '偏印', '辛申': '劫财', '辛酉': '比肩', '辛戌': '正印', '辛亥': '伤官',
+  '壬子': '劫财', '壬丑': '正官', '壬寅': '食神', '壬卯': '伤官', '壬辰': '七杀', '壬巳': '偏财', '壬午': '正财', '壬未': '正官', '壬申': '偏印', '壬酉': '正印', '壬戌': '七杀', '壬亥': '比肩',
+  '癸子': '比肩', '癸丑': '七杀', '癸寅': '伤官', '癸卯': '食神', '癸辰': '正官', '癸巳': '正财', '癸午': '偏财', '癸未': '七杀', '癸申': '正印', '癸酉': '偏印', '癸戌': '正官', '癸亥': '劫财',
+};
+
+const SHI_SHEN_SIMPLIFIED: Record<string, string> = {
+  '正印': '印',
+  '正官': '官',
+  '劫财': '劫',
+  '伤官': '伤',
+  '正财': '财',
+  '七杀': '杀',
+  '偏印': '枭',
+  '比肩': '比',
+  '食神': '食',
+  '偏财': '才',
 };
 
 // ============================================================
@@ -244,13 +307,19 @@ export async function calculateFullChart(
   const isForward = yun.isForward();
 
   const majorCycles: MajorCycleData[] = daYunList.slice(0, 10).map((dy: any) => {
-    const gz = dy.getGanZhi() || '';
+    const gz = dy.getGanZhi() || '童限';
     return {
       startYear: dy.getStartYear(),
+      endYear: dy.getEndYear(),
       age: dy.getStartAge(),
-      stem: gz[0] || '',
-      branch: gz[1] || '',
-      tenGod: gz ? getTenGod(gz[0]) : '',
+      endAge: dy.getEndAge(),
+      stem: gz === '童限' ? '' : (gz[0] || ''),
+      branch: gz === '童限' ? '' : (gz[1] || ''),
+      ganZhi: gz,
+      tenGod: gz === '童限' ? '童限' : getTenGod(dayGan, gz[0]),
+      xun: gz === '童限' ? '' : (dy.getXun?.() || ''),
+      xunKong: gz === '童限' ? '' : (dy.getXunKong?.() || ''),
+      annualLuck: buildLiuNianList(dayGan, dy),
     };
   });
 
@@ -334,12 +403,85 @@ function buildPillarData(
 }
 
 /**
- * 根据日主天干和目标干支字符，推算十神
- * 用于大运十神计算
+ * 根据日主天干和目标天干，推算十神简称
  */
-function getTenGod(char: string): string {
-  // 大运十神暂时直接返回干支字符，由前端或后续接口做完整推算
-  return char || '';
+function getTenGod(dayGan: string, targetGan: string): string {
+  const fullName = getTenGodFull(dayGan, targetGan);
+  return SHI_SHEN_SIMPLIFIED[fullName] || fullName || '';
+}
+
+function getTenGodFull(dayGan: string, targetGan: string): string {
+  if (!dayGan || !targetGan) return '';
+  const dayElement = GAN_WUXING[dayGan];
+  const targetElement = GAN_WUXING[targetGan];
+  if (!dayElement || !targetElement) return '';
+
+  const samePolarity = GAN_YIN_YANG[dayGan] === GAN_YIN_YANG[targetGan];
+  const generatedByDay = WUXING_GENERATES[dayElement];
+  const controlledByDay = WUXING_CONTROLS[dayElement];
+  const generatesDay = Object.keys(WUXING_GENERATES).find(key => WUXING_GENERATES[key] === dayElement);
+
+  if (targetElement === dayElement) {
+    return samePolarity ? '比肩' : '劫财';
+  }
+  if (generatedByDay === targetElement) {
+    return samePolarity ? '食神' : '伤官';
+  }
+  if (generatesDay === targetElement) {
+    return samePolarity ? '偏印' : '正印';
+  }
+  if (controlledByDay === targetElement) {
+    return samePolarity ? '偏财' : '正财';
+  }
+  if (WUXING_CONTROLS[targetElement] === dayElement) {
+    return samePolarity ? '七杀' : '正官';
+  }
+
+  return '';
+}
+
+function getBranchTenGod(dayGan: string, targetZhi: string): string {
+  const fullName = SHI_SHEN_ZHI[dayGan + targetZhi] || '';
+  return SHI_SHEN_SIMPLIFIED[fullName] || fullName;
+}
+
+function buildLiuNianList(dayGan: string, daYun: any): AnnualLuckData[] {
+  const liuNian = daYun.getLiuNian?.() || [];
+  return liuNian.map((ln: any) => buildLiuNianData(dayGan, ln));
+}
+
+function buildLiuNianData(dayGan: string, liuNian: any): AnnualLuckData {
+  const gz: string = liuNian.getGanZhi?.() || '';
+  return {
+    year: liuNian.getYear(),
+    age: liuNian.getAge?.() || 0,
+    stem: gz[0] || '',
+    branch: gz[1] || '',
+    ganZhi: gz,
+    tenGodTop: getTenGod(dayGan, gz[0] || ''),
+    tenGodBottom: getBranchTenGod(dayGan, gz[1] || ''),
+    xun: liuNian.getXun?.() || '',
+    xunKong: liuNian.getXunKong?.() || '',
+    monthlyLuck: buildLiuYueList(dayGan, liuNian),
+  };
+}
+
+function buildLiuYueList(dayGan: string, liuNian: any): MonthlyLuckData[] {
+  const liuYue = liuNian.getLiuYue?.() || [];
+  return liuYue.map((ly: any, i: number) => {
+    const gz: string = ly.getGanZhi?.() || '';
+    return {
+      month: i + 1,
+      monthInChinese: ly.getMonthInChinese?.() || '',
+      stem: gz[0] || '',
+      branch: gz[1] || '',
+      ganZhi: gz,
+      tenGod: getTenGod(dayGan, gz[0] || ''),
+      tenGodBottom: getBranchTenGod(dayGan, gz[1] || ''),
+      xun: ly.getXun?.() || '',
+      xunKong: ly.getXunKong?.() || '',
+    };
+  });
 }
 
 /**
@@ -390,23 +532,13 @@ export async function getLiuNian(
   const solar = Solar.fromYmdHms(birthYear, birthMonth, birthDay, birthHour, 0, 0);
   const lunar = solar.getLunar();
   const bazi = lunar.getEightChar();
+  const dayGan = bazi.getDayGan();
   const yun = bazi.getYun(gender, 1);
   const daYunList = yun.getDaYun();
 
   if (!daYunList[daYunIndex]) return [];
 
-  const liuNian = daYunList[daYunIndex].getLiuNian();
-  return liuNian.slice(0, count).map((ln: any) => {
-    const gz: string = ln.getGanZhi() || '';
-    const shiShen: string[] = ln.getShiShenGan ? ln.getShiShenGan() : [];
-    return {
-      year: ln.getYear(),
-      stem: gz[0] || '',
-      branch: gz[1] || '',
-      tenGodTop: shiShen[0] || '',    // 天干十神
-      tenGodBottom: shiShen[1] || '', // 地支主气十神
-    };
-  });
+  return buildLiuNianList(dayGan, daYunList[daYunIndex]).slice(0, count);
 }
 
 /**
@@ -429,6 +561,7 @@ export async function getLiuYue(
   const solar = Solar.fromYmdHms(birthYear, birthMonth, birthDay, birthHour, 0, 0);
   const lunar = solar.getLunar();
   const bazi = lunar.getEightChar();
+  const dayGan = bazi.getDayGan();
   const yun = bazi.getYun(gender, 1);
   const daYunList = yun.getDaYun();
 
@@ -436,15 +569,5 @@ export async function getLiuYue(
   const liuNian = daYunList[daYunIndex].getLiuNian();
   if (!liuNian[liuNianIndex]) return [];
 
-  const liuYue = liuNian[liuNianIndex].getLiuYue();
-  return liuYue.map((ly: any, i: number) => {
-    const gz: string = ly.getGanZhi() || '';
-    const shiShen: string[] = ly.getShiShenGan ? ly.getShiShenGan() : [];
-    return {
-      month: i + 1,
-      stem: gz[0] || '',
-      branch: gz[1] || '',
-      tenGod: shiShen[0] || '',  // 天干十神
-    };
-  });
+  return buildLiuYueList(dayGan, liuNian[liuNianIndex]);
 }

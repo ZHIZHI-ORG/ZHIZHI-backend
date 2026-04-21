@@ -25,6 +25,19 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseServic
 });
 
 /**
+ * 为认证流程创建独立的服务端客户端。
+ * 避免全局 client 在 signIn / verifyOtp 后切换到用户 session。
+ */
+export function createServiceSupabaseClient(): SupabaseClient {
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/**
  * 创建带用户上下文的 Supabase 客户端
  * 用于需要遵循 RLS 策略的操作
  * @param userToken - 用户的 JWT token

@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vercel dev",
     "dev:node": "ts-node server.ts",
+    "doctor": "node scripts/doctor.js",
+    "generate:ganzhi-calendar": "node scripts/generate-ganzhi-calendar.js",
+    "verify:ganzhi-calendar": "node scripts/verify-ganzhi-calendar.js",
     "build": "tsc",
     "deploy": "vercel --prod",
     "type-check": "tsc --noEmit"

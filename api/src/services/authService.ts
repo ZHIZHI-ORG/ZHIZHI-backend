@@ -24,7 +24,7 @@
  *   Handler → authService → { supabase.auth, userRepository, inviteCodeService }
  */
 
-import { supabase, createUserSupabaseClient } from '../database/supabase';
+import { supabase, createServiceSupabaseClient, createUserSupabaseClient } from '../database/supabase';
 import { userRepository } from '../database/repositories/UserRepository';
 import { getValidInviteCode, consumeInviteCode } from './inviteCodeService';
 import { validateEmail, validatePassword } from '../utils/validation';
@@ -110,6 +110,7 @@ export type SocialLoginResponse =
  */
 export async function sendVerificationCode(input: SendCodeInput): Promise<void> {
   const { email } = input;
+  const authClient = createServiceSupabaseClient();
 
   // 邮箱格式校验（validateEmail 返回 boolean，这里统一处理）
   if (!validateEmail(email)) {
@@ -117,7 +118,7 @@ export async function sendVerificationCode(input: SendCodeInput): Promise<void> 
   }
 
   // 调用 Supabase Auth 发送 OTP
-  const { error } = await supabase.auth.signInWithOtp({
+  const { error } = await authClient.auth.signInWithOtp({
     email,
     options: {
       // shouldCreateUser: true — 允许 Supabase 为新邮箱创建临时 auth 用户以发送验证码
@@ -160,6 +161,7 @@ export async function sendVerificationCode(input: SendCodeInput): Promise<void> 
  */
 export async function registerUser(input: RegisterInput): Promise<LoginResponse> {
   const { email, password, verification_code, invitation_code, display_name } = input;
+  const authClient = createServiceSupabaseClient();
 
   // 1. 基础格式校验
   if (!validateEmail(email)) {
@@ -181,7 +183,7 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
   // 3. 用验证码向 Supabase 完成注册
   //    verifyOtp type='email' 对应 signInWithOtp 发出的验证码
   //    成功后 Supabase 会在 auth.users 创建认证用户，并返回 session
-  const { data: authData, error: otpError } = await supabase.auth.verifyOtp({
+  const { data: authData, error: otpError } = await authClient.auth.verifyOtp({
     email,
     token: verification_code,
     type: 'email',
@@ -236,13 +238,14 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
  */
 export async function loginWithPassword(input: PasswordLoginInput): Promise<LoginResponse> {
   const { email, password } = input;
+  const authClient = createServiceSupabaseClient();
 
   if (!validateEmail(email)) {
     throw new ValidationError('邮箱格式不正确');
   }
 
   // Supabase 密码登录
-  const { data: authData, error } = await supabase.auth.signInWithPassword({
+  const { data: authData, error } = await authClient.auth.signInWithPassword({
     email,
     password,
   });
@@ -288,13 +291,14 @@ export async function loginWithPassword(input: PasswordLoginInput): Promise<Logi
  */
 export async function loginWithCode(input: CodeLoginInput): Promise<LoginResponse> {
   const { email, verification_code } = input;
+  const authClient = createServiceSupabaseClient();
 
   if (!validateEmail(email)) {
     throw new ValidationError('邮箱格式不正确');
   }
 
   // 用验证码向 Supabase 认证（verifyOtp）
-  const { data: authData, error } = await supabase.auth.verifyOtp({
+  const { data: authData, error } = await authClient.auth.verifyOtp({
     email,
     token: verification_code,
     type: 'email',
@@ -350,9 +354,10 @@ export async function loginWithCode(input: CodeLoginInput): Promise<LoginRespons
  */
 export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginResponse> {
   const { provider, social_token, invitation_code } = input;
+  const authClient = createServiceSupabaseClient();
 
   // 用 Supabase 验证 iOS SDK 返回的 identity_token
-  const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+  const { data: authData, error: authError } = await authClient.auth.signInWithIdToken({
     provider,
     token: social_token,
   });
@@ -444,6 +449,7 @@ export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginR
  */
 export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   const { email, verification_code, new_password } = input;
+  const authClient = createServiceSupabaseClient();
 
   // 校验新密码强度
   const pwCheck = validatePassword(new_password);
@@ -453,7 +459,7 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
 
   // 用验证码换取 session（同时完成验证码校验）
   // type: 'recovery' 是 Supabase 密码重置场景对应的 OTP 类型
-  const { data: otpData, error: otpError } = await supabase.auth.verifyOtp({
+  const { data: otpData, error: otpError } = await authClient.auth.verifyOtp({
     email,
     token: verification_code,
     type: 'recovery',
@@ -490,7 +496,8 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
  * @returns RefreshTokenResponse - { access_token, refresh_token }
  */
 export async function refreshAccessToken(input: RefreshTokenInput): Promise<RefreshTokenResponse> {
-  const { data, error } = await supabase.auth.refreshSession({
+  const authClient = createServiceSupabaseClient();
+  const { data, error } = await authClient.auth.refreshSession({
     refresh_token: input.refresh_token,
   });
 
