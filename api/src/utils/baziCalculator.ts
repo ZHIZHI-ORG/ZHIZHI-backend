@@ -186,6 +186,97 @@ const SHI_SHEN_SIMPLIFIED: Record<string, string> = {
   '偏财': '才',
 };
 
+// 主流排盘 app 常见的附加层口径：年干或日干查四柱地支。
+// 这不是当前 china-testing/bazi 主流程的一部分，因此放在附加层。
+const COMMON_TAIJI_BY_GAN: Record<string, string[]> = {
+  '甲': ['子', '午'], '乙': ['子', '午'],
+  '丙': ['卯', '酉'], '丁': ['卯', '酉'],
+  '戊': ['辰', '戌', '丑', '未'], '己': ['辰', '戌', '丑', '未'],
+  '庚': ['寅', '亥'], '辛': ['寅', '亥'],
+  '壬': ['巳', '申'], '癸': ['巳', '申'],
+};
+
+// 天厨禄贵按《三车一览》常见整理口径：既要见食神天干，又要见食神之禄位地支，二者同见方成。
+// 为兼容当前按柱展示的结构，命中后会把参与成格的“食神干”所在柱、以及“禄位支”所在柱标记为“天厨贵人”。
+const COMMON_TIANCHU_RULES_BY_GAN: Record<string, {
+  foodStem: string;
+  luBranches: string[];
+}> = {
+  '甲': { foodStem: '丙', luBranches: ['巳'] },
+  '乙': { foodStem: '丁', luBranches: ['午'] },
+  '丙': { foodStem: '戊', luBranches: ['巳'] },
+  '丁': { foodStem: '己', luBranches: ['午'] },
+  '戊': { foodStem: '庚', luBranches: ['申'] },
+  '己': { foodStem: '辛', luBranches: ['酉'] },
+  '庚': { foodStem: '壬', luBranches: ['亥'] },
+  '辛': { foodStem: '癸', luBranches: ['子'] },
+  '壬': { foodStem: '甲', luBranches: ['寅'] },
+  '癸': { foodStem: '乙', luBranches: ['卯'] },
+};
+
+const COMMON_GUOYIN_BY_GAN: Record<string, string[]> = {
+  '甲': ['戌'], '乙': ['亥'],
+  '丙': ['丑'], '丁': ['寅'],
+  '戊': ['丑'], '己': ['寅'],
+  '庚': ['辰'], '辛': ['巳'],
+  '壬': ['未'], '癸': ['申'],
+};
+
+const COMMON_JINYU_BY_GAN: Record<string, string[]> = {
+  '甲': ['辰'], '乙': ['巳'],
+  '丙': ['未'], '丁': ['申'],
+  '戊': ['未'], '己': ['申'],
+  '庚': ['戌'], '辛': ['亥'],
+  '壬': ['丑'], '癸': ['寅'],
+};
+
+const COMMON_HONGLUAN_BY_BRANCH: Record<string, string> = {
+  '子': '卯', '丑': '寅', '寅': '丑', '卯': '子',
+  '辰': '亥', '巳': '戌', '午': '酉', '未': '申',
+  '申': '未', '酉': '午', '戌': '巳', '亥': '辰',
+};
+
+const COMMON_TIANXI_BY_BRANCH: Record<string, string> = {
+  '子': '酉', '丑': '申', '寅': '未', '卯': '午',
+  '辰': '巳', '巳': '辰', '午': '卯', '未': '寅',
+  '申': '丑', '酉': '子', '戌': '亥', '亥': '戌',
+};
+
+// 德秀贵人按《三命通会》常见整理口径：以月令定局，四柱天干同时成“德”“秀”方成格。
+// 对当前按柱展示的产品结构，命中后将参与成格的天干所在柱标记为“德秀贵人”。
+const COMMON_DEXIU_RULES_BY_MONTH_BRANCH: Record<string, {
+  de: string[];
+  xiu: string[];
+}> = {
+  '寅': { de: ['丙', '丁'], xiu: ['戊', '癸'] },
+  '午': { de: ['丙', '丁'], xiu: ['戊', '癸'] },
+  '戌': { de: ['丙', '丁'], xiu: ['戊', '癸'] },
+  '申': { de: ['壬', '癸', '戊', '己'], xiu: ['丙', '辛', '甲', '己'] },
+  '子': { de: ['壬', '癸', '戊', '己'], xiu: ['丙', '辛', '甲', '己'] },
+  '辰': { de: ['壬', '癸', '戊', '己'], xiu: ['丙', '辛', '甲', '己'] },
+  '巳': { de: ['庚', '辛'], xiu: ['乙', '庚'] },
+  '酉': { de: ['庚', '辛'], xiu: ['乙', '庚'] },
+  '丑': { de: ['庚', '辛'], xiu: ['乙', '庚'] },
+  '亥': { de: ['甲', '乙'], xiu: ['丁', '壬'] },
+  '卯': { de: ['甲', '乙'], xiu: ['丁', '壬'] },
+  '未': { de: ['甲', '乙'], xiu: ['丁', '壬'] },
+};
+
+const REPO_YUTANG: Record<string, string> = {
+  '甲': '丑', '乙': '子', '丙': '亥', '丁': '酉', '戊': '未',
+  '己': '申', '庚': '未', '辛': '午', '壬': '巳', '癸': '卯',
+};
+
+const REPO_WENXING: Record<string, string> = {
+  '甲': '午', '乙': '巳', '丙': '申', '丁': '酉', '戊': '申',
+  '己': '酉', '庚': '戌', '辛': '亥', '壬': '寅', '癸': '卯',
+};
+
+const REPO_TIANYIN: Record<string, string[]> = {
+  '甲': ['子', '寅'], '乙': ['亥'], '丙': ['戌'], '丁': ['酉'], '戊': ['申'],
+  '己': ['未'], '庚': ['午'], '辛': ['巳'], '壬': ['辰'], '癸': ['卯'],
+};
+
 // ============================================================
 // 主计算函数
 // ============================================================
@@ -323,6 +414,14 @@ export async function calculateFullChart(
     };
   });
 
+  applyRepoExtraShenSha(
+    [yearPillar, monthPillar, dayPillar, timePillar],
+    yearGan,
+    dayGan,
+    yearPillar.naYin,
+    gender,
+  );
+
   // ── 步骤 8：组装返回结果 ────────────────────────────────────
   return {
     solar: solar.toYmdHms(),
@@ -400,6 +499,207 @@ function buildPillarData(
     naYin: naYin || '',
     shenSha,
   };
+}
+
+function applyRepoExtraShenSha(
+  pillars: PillarData[],
+  yearGan: string,
+  dayGan: string,
+  yearNaYin: string,
+  gender: number,
+): void {
+  addByBranchMatches(pillars, COMMON_TAIJI_BY_GAN[yearGan], '太极贵人');
+  addByBranchMatches(pillars, COMMON_TAIJI_BY_GAN[dayGan], '太极贵人');
+  applyCommonTianChu(pillars, yearGan);
+  applyCommonTianChu(pillars, dayGan);
+  addByBranchMatches(pillars, COMMON_GUOYIN_BY_GAN[yearGan], '国印贵人');
+  addByBranchMatches(pillars, COMMON_GUOYIN_BY_GAN[dayGan], '国印贵人');
+  addByBranchMatches(pillars, COMMON_JINYU_BY_GAN[yearGan], '金舆');
+  addByBranchMatches(pillars, COMMON_JINYU_BY_GAN[dayGan], '金舆');
+  addByBranchMatch(pillars, COMMON_HONGLUAN_BY_BRANCH[pillars[2].branch], '红鸾');
+  addByBranchMatch(pillars, COMMON_TIANXI_BY_BRANCH[pillars[2].branch], '天喜');
+  addByBranchMatch(pillars, REPO_YUTANG[dayGan], '玉堂贵人');
+  addByBranchMatch(pillars, REPO_WENXING[dayGan], '文星贵人');
+  addByBranchMatches(pillars, REPO_TIANYIN[dayGan], '天印贵人');
+  applyCommonDeXiu(pillars);
+
+  pillars.forEach((pillar) => {
+    if (matchesRepoLifecycleStage(pillar.lifecycle, '长')) {
+      addShenSha(pillar, '学堂');
+      const dayMasterElement = GAN_WUXING[dayGan] || '';
+      if (dayMasterElement && pillar.naYin.endsWith(dayMasterElement)) {
+        addShenSha(pillar, '正学堂');
+      }
+    }
+  });
+
+  applyRepoTaoHua(pillars);
+  applyRepoTianLuoDiWang(pillars, yearNaYin, gender);
+}
+
+function addByBranchMatch(
+  pillars: PillarData[],
+  targetBranch: string | undefined,
+  shenShaName: string,
+): void {
+  if (!targetBranch) return;
+  pillars.forEach((pillar) => {
+    if (pillar.branch === targetBranch) {
+      addShenSha(pillar, shenShaName);
+    }
+  });
+}
+
+function addByBranchMatches(
+  pillars: PillarData[],
+  targetBranches: string[] | undefined,
+  shenShaName: string,
+): void {
+  if (!targetBranches?.length) return;
+  pillars.forEach((pillar) => {
+    if (targetBranches.includes(pillar.branch)) {
+      addShenSha(pillar, shenShaName);
+    }
+  });
+}
+
+function applyCommonDeXiu(pillars: PillarData[]): void {
+  const monthBranch = pillars[1].branch;
+  const rule = COMMON_DEXIU_RULES_BY_MONTH_BRANCH[monthBranch];
+  if (!rule) return;
+
+  const stems = pillars.map((pillar) => pillar.stem);
+  const hasDe = stems.some((stem) => rule.de.includes(stem));
+  const hasXiu = stems.some((stem) => rule.xiu.includes(stem));
+  if (!hasDe || !hasXiu) return;
+
+  pillars.forEach((pillar) => {
+    if (rule.de.includes(pillar.stem) || rule.xiu.includes(pillar.stem)) {
+      addShenSha(pillar, '德秀贵人');
+    }
+  });
+}
+
+function applyCommonTianChu(pillars: PillarData[], baseGan: string): void {
+  const rule = COMMON_TIANCHU_RULES_BY_GAN[baseGan];
+  if (!rule) return;
+
+  const hasFoodStem = pillars.some((pillar) => pillar.stem === rule.foodStem);
+  const hasLuBranch = pillars.some((pillar) => rule.luBranches.includes(pillar.branch));
+  if (!hasFoodStem || !hasLuBranch) return;
+
+  pillars.forEach((pillar) => {
+    if (pillar.stem === rule.foodStem || rule.luBranches.includes(pillar.branch)) {
+      addShenSha(pillar, '天厨贵人');
+    }
+  });
+}
+
+function addShenSha(pillar: PillarData, shenShaName: string): void {
+  pillar.shenSha = [...new Set([...pillar.shenSha, shenShaName])];
+}
+
+function matchesRepoLifecycleStage(
+  lifecycle: string,
+  stage: '长',
+): boolean {
+  const normalized = lifecycle.trim();
+  if (!normalized) return false;
+
+  if (stage === '长') {
+    return normalized === '长' || normalized === '长生';
+  }
+
+  return false;
+}
+
+function applyRepoTaoHua(pillars: PillarData[]): void {
+  const zhis = pillars.map((pillar) => pillar.branch);
+  const dayZhi = zhis[2];
+  const yearZhi = zhis[0];
+  const dayCandidates = [zhis[0], zhis[1], zhis[3]];
+  const yearCandidates = [zhis[1], zhis[2], zhis[3]];
+
+  collectRepoTaoHuaTargets(dayZhi, dayCandidates).forEach((targetBranch) => {
+    pillars.forEach((pillar, index) => {
+      if (index !== 2 && pillar.branch === targetBranch) {
+        addShenSha(pillar, '桃花');
+      }
+    });
+  });
+
+  collectRepoTaoHuaTargets(yearZhi, yearCandidates).forEach((targetBranch) => {
+    pillars.forEach((pillar, index) => {
+      if (index !== 0 && pillar.branch === targetBranch) {
+        addShenSha(pillar, '桃花');
+      }
+    });
+  });
+}
+
+function collectRepoTaoHuaTargets(
+  baseBranch: string,
+  candidates: string[],
+): string[] {
+  const targets: string[] = [];
+
+  if ('申子辰'.includes(baseBranch) && candidates.includes('酉')) {
+    targets.push('酉');
+  }
+  if ('丑巳酉'.includes(baseBranch) && candidates.includes('午')) {
+    targets.push('午');
+  }
+  if ('寅午戌'.includes(baseBranch) && candidates.includes('卯')) {
+    targets.push('卯');
+  }
+  if ('亥卯未'.includes(baseBranch) && candidates.includes('子')) {
+    targets.push('子');
+  }
+
+  return [...new Set(targets)];
+}
+
+function applyRepoTianLuoDiWang(
+  pillars: PillarData[],
+  yearNaYin: string,
+  gender: number,
+): void {
+  const dayPillar = pillars[2];
+  const yearNaYinElement = yearNaYin.slice(-1);
+
+  if (gender === 1) {
+    addByOppositeBranchPairReference(pillars, 0, ['戌', '亥'], '天罗');
+    addByOppositeBranchPairReference(pillars, 2, ['戌', '亥'], '天罗');
+  }
+
+  if (gender === 2) {
+    addByOppositeBranchPairReference(pillars, 0, ['辰', '巳'], '地网');
+    addByOppositeBranchPairReference(pillars, 2, ['辰', '巳'], '地网');
+  }
+
+  if (gender === 1 && yearNaYinElement === '火' && '戌亥'.includes(dayPillar.branch)) {
+    addShenSha(dayPillar, '天罗');
+  }
+  if (gender === 2 && '水土'.includes(yearNaYinElement) && '辰巳'.includes(dayPillar.branch)) {
+    addShenSha(dayPillar, '地网');
+  }
+}
+
+function addByOppositeBranchPairReference(
+  pillars: PillarData[],
+  referenceIndex: number,
+  pair: [string, string],
+  shenShaName: string,
+): void {
+  const referenceBranch = pillars[referenceIndex].branch;
+  if (!pair.includes(referenceBranch)) return;
+
+  const targetBranch = referenceBranch === pair[0] ? pair[1] : pair[0];
+  pillars.forEach((pillar, index) => {
+    if (index !== referenceIndex && pillar.branch === targetBranch) {
+      addShenSha(pillar, shenShaName);
+    }
+  });
 }
 
 /**
