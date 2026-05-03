@@ -4,7 +4,16 @@
  */
 import { userRepository } from '../database/repositories/UserRepository';
 import { UpdateUserInput, UpdateUserExtendedInput, UserProfile } from '../models/User';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, ValidationError } from '../utils/errors';
+
+const EXTENDED_PROFILE_LIMITS: Record<keyof UpdateUserExtendedInput, number> = {
+  bio: 500,
+  location: 100,
+  career: 100,
+  school: 100,
+  mbti: 4,
+  notes: 1000,
+};
 
 /**
  * 获取用户资料
@@ -50,14 +59,33 @@ export async function updateUserExtendedProfile(
   userId: string,
   input: UpdateUserExtendedInput,
 ): Promise<UserProfile> {
-  // MBTI 格式校验：4位字母，如 INTJ / ENFP
-  if (input.mbti !== undefined && input.mbti !== '') {
-    if (!/^[EI][NS][TF][JP]$/i.test(input.mbti)) {
-      throw new Error('MBTI 格式不正确，应为4位字母（如 INTJ）');
+  const normalized: UpdateUserExtendedInput = {};
+
+  for (const key of Object.keys(EXTENDED_PROFILE_LIMITS) as Array<keyof UpdateUserExtendedInput>) {
+    const value = input[key];
+    if (value === undefined) continue;
+
+    const cleaned = typeof value === 'string' ? value.trim() : value;
+    if (cleaned === '') {
+      normalized[key] = null as any;
+      continue;
     }
-    input.mbti = input.mbti.toUpperCase();
+
+    if (typeof cleaned === 'string' && cleaned.length > EXTENDED_PROFILE_LIMITS[key]) {
+      throw new ValidationError(`${key} 不能超过 ${EXTENDED_PROFILE_LIMITS[key]} 个字符`);
+    }
+
+    normalized[key] = cleaned as any;
   }
 
-  const updatedUser = await userRepository.update(userId, input as any);
+  // MBTI 格式校验：4位字母，如 INTJ / ENFP
+  if (normalized.mbti !== undefined && normalized.mbti !== null) {
+    if (!/^[EI][NS][TF][JP]$/i.test(normalized.mbti)) {
+      throw new ValidationError('MBTI 格式不正确，应为4位字母（如 INTJ）');
+    }
+    normalized.mbti = normalized.mbti.toUpperCase();
+  }
+
+  const updatedUser = await userRepository.update(userId, normalized as any);
   return userRepository.toProfile(updatedUser);
 }

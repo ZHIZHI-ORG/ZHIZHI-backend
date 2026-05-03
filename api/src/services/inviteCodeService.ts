@@ -17,6 +17,81 @@ import { inviteCodeRepository } from '../database/repositories/InviteCodeReposit
 import { InviteCode, InviteCodeCheckResult, InviteCodeScene } from '../models/InviteCode';
 import { ValidationError } from '../utils/errors';
 
+const FRIEND_INVITE_WEEKLY_LIMIT = 5;
+const HONG_KONG_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export interface InviteQuotaContract {
+  code: string;
+  used_count: number;
+  max_uses: number;
+  remaining_count: number | null;
+  reset_policy: 'weekly' | 'none' | 'lifetime';
+  reset_at: string | null;
+  created_at: string;
+}
+
+function getHongKongWeekWindow(now = new Date()): { start: Date; nextReset: Date } {
+  const hkDate = new Date(now.getTime() + HONG_KONG_OFFSET_MS);
+  const day = hkDate.getUTCDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  const startHkMs = Date.UTC(
+    hkDate.getUTCFullYear(),
+    hkDate.getUTCMonth(),
+    hkDate.getUTCDate() - daysSinceMonday,
+    0,
+    0,
+    0,
+    0,
+  );
+  const start = new Date(startHkMs - HONG_KONG_OFFSET_MS);
+  const nextReset = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { start, nextReset };
+}
+
+function formatHongKongIso(date: Date): string {
+  const hkDate = new Date(date.getTime() + HONG_KONG_OFFSET_MS);
+  const y = hkDate.getUTCFullYear();
+  const m = String(hkDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(hkDate.getUTCDate()).padStart(2, '0');
+  const hh = String(hkDate.getUTCHours()).padStart(2, '0');
+  const mm = String(hkDate.getUTCMinutes()).padStart(2, '0');
+  const ss = String(hkDate.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}+08:00`;
+}
+
+function getEffectiveMaxUses(inviteCode: InviteCode): number {
+  if (inviteCode.created_by) {
+    return inviteCode.max_uses === -1 ? FRIEND_INVITE_WEEKLY_LIMIT : inviteCode.max_uses;
+  }
+  return inviteCode.max_uses;
+}
+
+async function getEffectiveUsedCount(inviteCode: InviteCode): Promise<number> {
+  if (!inviteCode.created_by) {
+    return inviteCode.used_count;
+  }
+
+  const { start } = getHongKongWeekWindow();
+  return inviteCodeRepository.countUsagesByCodeSince(inviteCode.id, start.toISOString());
+}
+
+export async function buildInviteQuotaContract(inviteCode: InviteCode): Promise<InviteQuotaContract> {
+  const maxUses = getEffectiveMaxUses(inviteCode);
+  const usedCount = await getEffectiveUsedCount(inviteCode);
+  const isUnlimited = maxUses === -1;
+  const { nextReset } = getHongKongWeekWindow();
+
+  return {
+    code: inviteCode.code,
+    used_count: usedCount,
+    max_uses: maxUses,
+    remaining_count: isUnlimited ? null : Math.max(0, maxUses - usedCount),
+    reset_policy: inviteCode.created_by ? 'weekly' : isUnlimited ? 'none' : 'lifetime',
+    reset_at: inviteCode.created_by ? formatHongKongIso(nextReset) : null,
+    created_at: inviteCode.created_at,
+  };
+}
+
 /**
  * 校验邀请码是否有效
  *
@@ -56,8 +131,11 @@ export async function checkInviteCode(code: string): Promise<InviteCodeCheckResu
     return { valid: false, message: '邀请码已过期' };
   }
 
+  const maxUses = getEffectiveMaxUses(inviteCode);
+  const usedCount = await getEffectiveUsedCount(inviteCode);
+
   // 超出使用次数（max_uses = -1 表示无限制，跳过此检查）
-  if (inviteCode.max_uses !== -1 && inviteCode.used_count >= inviteCode.max_uses) {
+  if (maxUses !== -1 && usedCount >= maxUses) {
     return { valid: false, message: '邀请码已被使用完毕' };
   }
 

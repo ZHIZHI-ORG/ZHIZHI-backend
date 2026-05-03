@@ -147,6 +147,21 @@ export class InviteCodeRepository {
     return data as InviteUsage[];
   }
 
+  async countUsagesByCodeSince(codeId: string, since: string): Promise<number> {
+    const { count, error } = await supabase
+      .from(this.usagesTable)
+      .select('*', { count: 'exact', head: true })
+      .eq('invite_code_id', codeId)
+      .gte('used_at', since);
+
+    if (error) {
+      console.error('统计邀请码周期用量失败:', error.message);
+      return 0;
+    }
+
+    return count || 0;
+  }
+
   /**
    * 为用户创建专属邀请码
    * 码格式：ZZ + 随机6位大写字母+数字，如 "ZZAB12CD"
@@ -170,9 +185,9 @@ export class InviteCodeRepository {
       .insert({
         code,
         created_by: userId,
-        max_uses: -1, // 用户邀请码无使用次数限制
+        max_uses: 5,
         is_active: true,
-        note: '用户生成的好友邀请码',
+        note: '用户生成的好友邀请码，每周5次',
       })
       .select()
       .single();

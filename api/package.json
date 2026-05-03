@@ -11,6 +11,7 @@
     "verify:ganzhi-calendar": "node scripts/verify-ganzhi-calendar.js",
     "build": "tsc",
     "test:shensha": "ts-node tests/shenShaValidation.ts",
+    "test:history": "ts-node tests/historyService.test.ts",
     "deploy": "vercel --prod",
     "type-check": "tsc --noEmit"
   },

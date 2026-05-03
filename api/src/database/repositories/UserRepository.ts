@@ -152,6 +152,12 @@ export class UserRepository {
       is_email_verified: user.is_email_verified,
       bazi_profile_count: user.bazi_profile_count,
       created_at: user.created_at,
+      bio: user.bio,
+      location: user.location,
+      career: user.career,
+      school: user.school,
+      mbti: user.mbti,
+      notes: user.notes,
     };
   }
 }

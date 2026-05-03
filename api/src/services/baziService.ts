@@ -211,6 +211,211 @@ export async function deleteBaziProfile(
 }
 
 // ============================================================
+// 结构化命盘 / 运势时间线
+// ============================================================
+
+function toSnakePillar(position: string, pillar: any) {
+  return {
+    position,
+    stem: pillar?.stem || '',
+    branch: pillar?.branch || '',
+    ten_god: pillar?.tenGod || '',
+    stem_element: pillar?.stemElement || '',
+    branch_element: pillar?.branchElement || '',
+    hidden_stems: (pillar?.hiddenStems || []).map((item: any) => ({
+      stem: item.stem,
+      ten_god: item.tenGod,
+      element: item.element,
+    })),
+    lifecycle: pillar?.lifecycle || '',
+    void_info: pillar?.voidInfo || '',
+    na_yin: pillar?.naYin || '',
+    shen_sha: pillar?.shenSha || [],
+  };
+}
+
+function wuxingToContract(wuxing: any) {
+  return {
+    metal: wuxing?.金 || 0,
+    wood: wuxing?.木 || 0,
+    water: wuxing?.水 || 0,
+    fire: wuxing?.火 || 0,
+    earth: wuxing?.土 || 0,
+    dominant: wuxing?.dominant || '',
+    lacking: wuxing?.lacking || [],
+  };
+}
+
+function getChart(profile: BaziProfile): any {
+  return profile.full_chart || {
+    dayMaster: profile.day_master,
+    dayMasterElement: profile.day_master_element,
+    year: {
+      stem: profile.bazi_year_stem,
+      branch: profile.bazi_year_branch,
+    },
+    month: {
+      stem: profile.bazi_month_stem,
+      branch: profile.bazi_month_branch,
+    },
+    day: {
+      stem: profile.bazi_day_stem,
+      branch: profile.bazi_day_branch,
+    },
+    time: {
+      stem: profile.bazi_hour_stem,
+      branch: profile.bazi_hour_branch,
+    },
+    wuxing: profile.wuxing_analysis,
+    majorCycles: [],
+  };
+}
+
+function mapMajorCycle(cycle: any, index: number) {
+  return {
+    id: `${cycle.startYear || 'unknown'}-${cycle.ganZhi || index}`,
+    start_year: cycle.startYear,
+    end_year: cycle.endYear,
+    age_start: cycle.age,
+    age_end: cycle.endAge,
+    stem: cycle.stem,
+    branch: cycle.branch,
+    gan_zhi: cycle.ganZhi,
+    ten_god: cycle.tenGod,
+    label: cycle.ganZhi === '童限' ? '童限' : '大运',
+  };
+}
+
+function mapAnnualLuck(item: any) {
+  return {
+    id: `${item.year}-${item.ganZhi}`,
+    year: item.year,
+    age: item.age,
+    stem: item.stem,
+    branch: item.branch,
+    gan_zhi: item.ganZhi,
+    ten_god_top: item.tenGodTop,
+    ten_god_bottom: item.tenGodBottom,
+    xun: item.xun,
+    xun_kong: item.xunKong,
+  };
+}
+
+function mapMonthlyLuck(item: any) {
+  return {
+    id: `${item.month}-${item.ganZhi}`,
+    month: item.month,
+    month_in_chinese: item.monthInChinese,
+    stem: item.stem,
+    branch: item.branch,
+    gan_zhi: item.ganZhi,
+    ten_god: item.tenGod,
+    ten_god_bottom: item.tenGodBottom,
+    xun: item.xun,
+    xun_kong: item.xunKong,
+  };
+}
+
+export async function getBaziChart(userId: string, profileId: string) {
+  const profile = await getBaziProfileById(userId, profileId);
+  const chart = getChart(profile);
+
+  return {
+    profile_id: profile.id,
+    day_master: chart.dayMaster || profile.day_master || '',
+    day_master_element: chart.dayMasterElement || profile.day_master_element || '',
+    hour_precision: profile.birth_hour === null || profile.birth_hour === undefined ? 'unknown' : 'known',
+    pillars: [
+      toSnakePillar('year', chart.year),
+      toSnakePillar('month', chart.month),
+      toSnakePillar('day', chart.day),
+      toSnakePillar('hour', chart.time),
+    ],
+    wuxing_analysis: wuxingToContract(chart.wuxing || profile.wuxing_analysis),
+    calculation_info: {
+      start_luck_age: chart.startAge || 0,
+      start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
+      start_luck_date: chart.startDate || null,
+      is_forward: chart.isForward ?? null,
+      transition_rule: '',
+      commanding_stem: chart.month?.stem || profile.bazi_month_stem || '',
+    },
+  };
+}
+
+export async function getBaziLuckTimeline(
+  userId: string,
+  profileId: string,
+  query: { year?: number; month?: number; day?: string },
+) {
+  const profile = await getBaziProfileById(userId, profileId);
+  const chart = getChart(profile);
+  const year = query.year || new Date().getFullYear();
+  const majorCycles = (chart.majorCycles || []) as any[];
+  const activeCycle = majorCycles.find((cycle) => year >= cycle.startYear && year <= cycle.endYear)
+    || majorCycles[0];
+  const annualLucks = (activeCycle?.annualLuck || []).map(mapAnnualLuck);
+  const selectedAnnual = (activeCycle?.annualLuck || []).find((item: any) => item.year === year)
+    || activeCycle?.annualLuck?.[0];
+
+  return {
+    profile_id: profile.id,
+    selected_year: year,
+    selected_month: query.month || null,
+    selected_day: query.day || null,
+    major_cycles: majorCycles.map(mapMajorCycle),
+    annual_lucks: annualLucks,
+    monthly_lucks: (selectedAnnual?.monthlyLuck || []).map(mapMonthlyLuck),
+    daily_lucks: [],
+  };
+}
+
+export async function getBaziLuckAnalysis(
+  userId: string,
+  profileId: string,
+  query: { major_cycle_key?: string; year?: number; month?: number; day?: string },
+) {
+  if (query.day !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(query.day)) {
+    throw new ValidationError('day 必须是 YYYY-MM-DD 格式');
+  }
+
+  const timeline = await getBaziLuckTimeline(userId, profileId, {
+    year: query.year,
+    month: query.month,
+    day: query.day,
+  });
+  const selectedCycle = timeline.major_cycles.find((cycle: any) => cycle.id === query.major_cycle_key)
+    || timeline.major_cycles.find((cycle: any) => timeline.selected_year >= cycle.start_year && timeline.selected_year <= cycle.end_year)
+    || timeline.major_cycles[0];
+  const selectedAnnual = timeline.annual_lucks.find((item: any) => item.year === timeline.selected_year)
+    || timeline.annual_lucks[0];
+  const selectedMonthly = query.month
+    ? timeline.monthly_lucks.find((item: any) => item.month === query.month)
+    : null;
+
+  return {
+    heavenly_stem_luck: selectedAnnual
+      ? `${timeline.selected_year} 年天干 ${selectedAnnual.stem || '未知'}，十神为 ${selectedAnnual.ten_god_top || '未知'}。`
+      : '当前档案暂无流年天干数据。',
+    earthly_branch_luck: selectedAnnual
+      ? `${timeline.selected_year} 年地支 ${selectedAnnual.branch || '未知'}，地支关系为 ${selectedAnnual.ten_god_bottom || '未知'}。`
+      : '当前档案暂无流年地支数据。',
+    heavenly_stem_base: selectedCycle
+      ? `当前大运 ${selectedCycle.gan_zhi || selectedCycle.label}，天干 ${selectedCycle.stem || '未知'}。`
+      : '当前档案暂无大运数据。',
+    earthly_branch_base: selectedCycle
+      ? `当前大运地支 ${selectedCycle.branch || '未知'}，年龄段 ${selectedCycle.age_start || '-'}-${selectedCycle.age_end || '-'}。`
+      : '当前档案暂无大运数据。',
+    shen_sha: {
+      major_cycle: selectedCycle?.label || '',
+      annual: selectedAnnual?.gan_zhi || '',
+      monthly: selectedMonthly?.gan_zhi || '',
+      daily: query.day || '',
+    },
+  };
+}
+
+// ============================================================
 // 输入验证
 // ============================================================
 
