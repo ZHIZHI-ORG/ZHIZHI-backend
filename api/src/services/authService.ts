@@ -27,6 +27,7 @@
 import { supabase, createServiceSupabaseClient, createUserSupabaseClient } from '../database/supabase';
 import { userRepository } from '../database/repositories/UserRepository';
 import { getValidInviteCode, consumeInviteCode } from './inviteCodeService';
+import { isInviteCodeRequired } from '../config/auth';
 import { validateEmail, validatePassword } from '../utils/validation';
 import { UnauthorizedError, ValidationError, NotFoundError } from '../utils/errors';
 import { LoginResponse, RefreshTokenResponse, User } from '../models/User';
@@ -47,7 +48,7 @@ export interface RegisterInput {
   email: string;
   password: string;
   verification_code: string; // 对应前端 verificationCode
-  invitation_code: string;   // 对应前端 invitationCode（内测必填）
+  invitation_code?: string;  // 对应前端 invitationCode（受 INVITE_CODE_REQUIRED 开关控制）
   display_name?: string;     // 对应前端 displayName（可选）
 }
 
@@ -67,7 +68,8 @@ export interface CodeLoginInput {
 export interface SocialLoginInput {
   provider: 'apple' | 'google';
   social_token: string;       // 对应前端 socialToken（iOS SDK 返回的 identity_token）
-  invitation_code?: string;   // 对应前端 invitationCode（新用户时需要）
+  nonce?: string;             // Google Sign-In 生产环境 nonce 校验
+  invitation_code?: string;   // 对应前端 invitationCode（邀请码门禁开启时新用户需要）
 }
 
 /** 密码重置输入（simple.md §3.1：邮箱 → 发验证码 → 输入新密码 → 重置） */
@@ -85,11 +87,35 @@ export interface RefreshTokenInput {
 /**
  * 第三方登录响应（两种结果，由后端判断用哪种）
  *   - status='ok'        : 登录/注册成功，直接返回 token
- *   - status='need_info' : 新用户且无邀请码，需前端引导用户走完整注册流程
+ *   - status='need_info' : 新用户且邀请码门禁开启，需前端补全注册信息
  */
 export type SocialLoginResponse =
   | { status: 'ok'; data: LoginResponse }
   | { status: 'need_info'; temp_token: string };
+
+async function resolveInviteCodeForRegistration(
+  invitationCode: string | undefined,
+  required: boolean,
+): Promise<InviteCode | null> {
+  const code = invitationCode?.trim();
+
+  if (!code) {
+    if (required) {
+      throw new ValidationError('请输入邀请码');
+    }
+    return null;
+  }
+
+  try {
+    return await getValidInviteCode(code);
+  } catch {
+    if (required) {
+      throw new ValidationError('邀请码无效或已失效');
+    }
+    console.warn('[注册] 已忽略无效邀请码（当前未强制要求邀请码）:', code);
+    return null;
+  }
+}
 
 
 // ─────────────────────────────────────────────────────────────
@@ -147,16 +173,16 @@ export async function sendVerificationCode(input: SendCodeInput): Promise<void> 
  *
  * simple.md §3.1 注册流程（两步，第一步由 send-code 接口完成）：
  *   Step 1（前端已发起）: POST /send-code { email }
- *   Step 2（此函数处理）: POST /register { email, password, verificationCode, invitationCode }
+ *   Step 2（此函数处理）: POST /register { email, password, verificationCode, invitationCode? }
  *
  * 后端处理顺序：
- *   1. 校验邀请码有效性（先校验，避免后续步骤浪费）
+ *   1. 按 INVITE_CODE_REQUIRED 判断是否强制校验邀请码
  *   2. 用验证码 + 邮箱向 Supabase 完成注册（verifyOtp 同时创建 auth 用户）
  *   3. 在业务 users 表创建用户记录
- *   4. 消耗邀请码（写使用记录 + 自增次数）
+ *   4. 有有效邀请码时消耗邀请码（写使用记录 + 自增次数）
  *   5. 返回 token
  *
- * @param input - { email, password, verification_code, invitation_code, display_name? }
+ * @param input - { email, password, verification_code, invitation_code?, display_name? }
  * @returns LoginResponse - { user, access_token, refresh_token }
  */
 export async function registerUser(input: RegisterInput): Promise<LoginResponse> {
@@ -172,13 +198,8 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
     throw new ValidationError(pwCheck.message!);
   }
 
-  // 2. 校验邀请码（注册前校验，无效码直接阻断，抛出 ValidationError）
-  let inviteCode: InviteCode;
-  try {
-    inviteCode = await getValidInviteCode(invitation_code);
-  } catch {
-    throw new ValidationError('邀请码无效或已失效');
-  }
+  // 2. 邀请码门禁由环境变量控制。关闭时允许无邀请码注册；有有效邀请码仍记录邀请关系。
+  const inviteCode = await resolveInviteCodeForRegistration(invitation_code, isInviteCodeRequired());
 
   // 3. 用验证码向 Supabase 完成注册
   //    verifyOtp type='email' 对应 signInWithOtp 发出的验证码
@@ -208,11 +229,18 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
   }
 
   // 5. 消耗邀请码（写关系记录 + 次数自增）
-  //    此步骤失败不阻断注册（最终一致性），仅记录日志
-  try {
-    await consumeInviteCode(inviteCode, user.id);
-  } catch (e) {
-    console.error('[注册] 邀请码消耗失败（不影响注册结果）:', e);
+  //    邀请关系是增长追溯的核心账本，失败时回滚新账号，避免“注册成功但查不到邀请人”。
+  if (inviteCode) {
+    try {
+      await consumeInviteCode(inviteCode, user.id);
+    } catch (e) {
+      console.error('[注册] 邀请码消耗失败，回滚新账号:', e);
+      await userRepository.hardDeleteById(user.id).catch((cleanupError) => {
+        console.error('[注册] 回滚 users 记录失败:', cleanupError);
+      });
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      throw new Error('注册失败：邀请码使用记录写入失败，请稍后重试');
+    }
   }
 
   // 6. 返回用户信息 + Token
@@ -341,25 +369,27 @@ export async function loginWithCode(input: CodeLoginInput): Promise<LoginRespons
  * iOS 端流程：
  *   1. 用户点击 "Sign in with Apple" 或 "Sign in with Google"
  *   2. iOS SDK 返回 identity_token（JWT 格式）
- *   3. 前端将 identity_token 作为 social_token 发给本接口
- *   4. 后端用 Supabase signInWithIdToken 验证
+ *   3. Google 登录同时返回前端生成的 nonce，用于防止 token 重放
+ *   4. 前端将 identity_token 作为 social_token 发给本接口
+ *   5. 后端用 Supabase signInWithIdToken 验证 token 与 nonce
  *
  * 三种处理结果：
  *   A. 已有账号 → 直接返回 token（200 ok）
- *   B. 新用户 + 有效邀请码 → 自动注册并返回 token（200 ok）
- *   C. 新用户 + 无邀请码 → 返回 need_info，前端引导用户输入邀请码（202）
+ *   B. 新用户 + 邀请码门禁关闭或有效邀请码 → 自动注册并返回 token（200 ok）
+ *   C. 新用户 + 邀请码门禁开启且无有效邀请码 → 返回 need_info（202）
  *
- * @param input - { provider, social_token, invitation_code? }
+ * @param input - { provider, social_token, nonce?, invitation_code? }
  * @returns SocialLoginResponse
  */
 export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginResponse> {
-  const { provider, social_token, invitation_code } = input;
+  const { provider, social_token, nonce, invitation_code } = input;
   const authClient = createServiceSupabaseClient();
 
   // 用 Supabase 验证 iOS SDK 返回的 identity_token
   const { data: authData, error: authError } = await authClient.auth.signInWithIdToken({
     provider,
     token: social_token,
+    nonce,
   });
 
   if (authError || !authData.user || !authData.session) {
@@ -383,54 +413,52 @@ export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginR
   }
 
   // 情况 B / C：新用户
-  if (invitation_code) {
-    // 尝试用邀请码自动注册
-    let inviteCode: InviteCode | null = null;
+  const inviteCode = await resolveInviteCodeForRegistration(invitation_code, false);
+
+  if (isInviteCodeRequired() && !inviteCode) {
+    // 情况 C：邀请码门禁开启且无有效邀请码，返回临时 token 让前端补全
+    return {
+      status: 'need_info',
+      temp_token: authData.session.access_token,
+    };
+  }
+
+  // 情况 B：邀请码门禁关闭，或已有有效邀请码，自动注册
+  const email = authData.user.email ?? '';
+  // Supabase 会在 user_metadata 中存储第三方提供的姓名
+  const display_name =
+    authData.user.user_metadata?.full_name ||
+    authData.user.user_metadata?.name ||
+    undefined;
+
+  let newUser;
+  try {
+    newUser = await userRepository.create({ id: authData.user.id, email, display_name });
+  } catch (dbError) {
+    await supabase.auth.admin.deleteUser(authData.user.id);
+    throw new Error(`第三方注册失败: ${dbError instanceof Error ? dbError.message : ''}`);
+  }
+
+  if (inviteCode) {
     try {
-      inviteCode = await getValidInviteCode(invitation_code);
-    } catch {
-      // 邀请码无效，走情况 C
-    }
-
-    if (inviteCode) {
-      // 情况 B：邀请码有效，自动注册
-      const email = authData.user.email ?? '';
-      // Supabase 会在 user_metadata 中存储第三方提供的姓名
-      const display_name =
-        authData.user.user_metadata?.full_name ||
-        authData.user.user_metadata?.name ||
-        undefined;
-
-      let newUser;
-      try {
-        newUser = await userRepository.create({ id: authData.user.id, email, display_name });
-      } catch (dbError) {
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        throw new Error(`第三方注册失败: ${dbError instanceof Error ? dbError.message : ''}`);
-      }
-
-      try {
-        await consumeInviteCode(inviteCode, newUser.id);
-      } catch (e) {
-        console.error('[社交登录] 邀请码消耗失败:', e);
-      }
-
-      return {
-        status: 'ok',
-        data: {
-          user: userRepository.toProfile(newUser),
-          access_token: authData.session.access_token,
-          refresh_token: authData.session.refresh_token,
-        },
-      };
+      await consumeInviteCode(inviteCode, newUser.id);
+    } catch (e) {
+      console.error('[社交登录] 邀请码消耗失败，回滚新账号:', e);
+      await userRepository.hardDeleteById(newUser.id).catch((cleanupError) => {
+        console.error('[社交登录] 回滚 users 记录失败:', cleanupError);
+      });
+      await supabase.auth.admin.deleteUser(authData.user.id);
+      throw new Error('第三方注册失败：邀请码使用记录写入失败，请稍后重试');
     }
   }
 
-  // 情况 C：新用户且无有效邀请码，返回临时 token 让前端引导用户补全
-  // temp_token 即当前 session 的 access_token，前端可用它携带状态
   return {
-    status: 'need_info',
-    temp_token: authData.session.access_token,
+    status: 'ok',
+    data: {
+      user: userRepository.toProfile(newUser),
+      access_token: authData.session.access_token,
+      refresh_token: authData.session.refresh_token,
+    },
   };
 }
 

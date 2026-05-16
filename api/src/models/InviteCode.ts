@@ -18,6 +18,8 @@ export interface InviteCode {
   max_uses: number;        // 最大使用次数，-1 = 无限
   is_active: boolean;      // 是否有效
   expires_at: string | null; // 过期时间，null = 永不过期
+  period_start: string | null; // 用户邀请码所属周期开始时间（系统码为 null）
+  period_end: string | null;   // 用户邀请码所属周期结束时间（系统码为 null）
   note: string | null;     // 备注
   created_at: string;      // 创建时间
 }

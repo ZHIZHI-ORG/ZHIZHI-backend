@@ -3,8 +3,7 @@
  * POST /api/auth/check-invite-code
  *
  * 依据：simple.md §3.1 邀请码验证
- * 用途：内测门禁。App 启动时，未登录用户需先通过此接口验证邀请码，
- *       验证通过后前端才展示登录/注册页面。
+ * 用途：单独校验邀请码。是否作为注册门禁由 INVITE_CODE_REQUIRED 控制。
  *
  * 请求体：{ invitationCode: string }
  * 成功响应 200：{ success: true, data: { valid: true, message: "欢迎加入知之" } }

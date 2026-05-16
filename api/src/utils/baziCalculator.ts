@@ -95,6 +95,39 @@ export interface WuxingAnalysis {
   lacking: string[];      // 缺失五行
 }
 
+export interface WeightedElementScore {
+  raw: number;      // 原始加权分
+  percent: number;  // 归一化百分比（五行合计为100）
+}
+
+export interface WeightedWuxingContribution {
+  element: string;
+  score: number;
+  source: string;
+  pillar?: string;
+  stem?: string;
+  branch?: string;
+  note: string;
+}
+
+export interface DayMasterStrength {
+  score: number;          // -100 到 100，越高表示日主越得生扶
+  label: string;          // extremely_strong / strong / balanced / neutral_weak / weak / extremely_weak
+  supportScore: number;   // 生扶日主的力量
+  drainScore: number;     // 克泄耗日主的力量
+}
+
+export interface WeightedWuxingAnalysis {
+  methodVersion: 'weighted_wuxing_v2_9';
+  scores: Record<string, WeightedElementScore>;
+  dominant: string;
+  weakest: string;
+  balanceIndex: number; // 0-1，越接近1表示五行越均衡
+  dayMasterStrength: DayMasterStrength;
+  majorFactors: string[];
+  contributions: WeightedWuxingContribution[];
+}
+
 /** 完整排盘结果 */
 export interface FullChartResult {
   // 基础信息
@@ -111,12 +144,16 @@ export interface FullChartResult {
 
   // 五行分析
   wuxing: WuxingAnalysis;
+  weightedWuxing: WeightedWuxingAnalysis;
 
   // 大运信息
   startAge: number;           // 起运年龄
   startDate: string;          // 起运时间
   isForward: boolean;         // 顺运（男阳/女阴）还是逆运
   majorCycles: MajorCycleData[];  // 大运列表
+
+  // 排盘校准元信息（例如真太阳时）
+  calculationInfo?: any;
 }
 
 // ============================================================
@@ -159,6 +196,132 @@ const WUXING_CONTROLS: Record<string, string> = {
   '火': '金',
   '金': '木',
 };
+
+const WUXING_ELEMENTS = ['木', '火', '土', '金', '水'] as const;
+type WuxingElement = typeof WUXING_ELEMENTS[number];
+type PillarPosition = 'year' | 'month' | 'day' | 'time';
+
+const STEM_POSITION_WEIGHTS: Record<PillarPosition, number> = {
+  year: 0.6,
+  month: 1.5,
+  day: 1.2,
+  time: 1.0,
+};
+
+const BRANCH_POSITION_WEIGHTS: Record<PillarPosition, number> = {
+  year: 0.6,
+  month: 3.0,
+  day: 1.5,
+  time: 1.0,
+};
+
+const HIDDEN_QI_WEIGHTS_BY_COUNT: Record<number, number[]> = {
+  1: [1.0],
+  2: [0.7, 0.3],
+  3: [0.6, 0.3, 0.1],
+};
+const ZHI_HIDDEN_QI_WEIGHTS: Record<string, number[]> = {
+  '子': [1.0],
+  '丑': [0.6, 0.25, 0.15],
+  '寅': [0.6, 0.25, 0.15],
+  '卯': [1.0],
+  '辰': [0.6, 0.25, 0.15],
+  '巳': [0.6, 0.25, 0.15],
+  '午': [0.7, 0.3],
+  '未': [0.6, 0.25, 0.15],
+  '申': [0.6, 0.25, 0.15],
+  '酉': [1.0],
+  '戌': [0.65, 0.2, 0.15],
+  '亥': [0.7, 0.3],
+};
+const ROOTED_PENETRATION_WEIGHTS_BY_COUNT: Record<number, number[]> = {
+  1: [0.22],
+  2: [0.18, 0.1],
+  3: [0.16, 0.09, 0.04],
+};
+const STEM_TRANSFORM_DRAIN_RATIO = 0.40;
+const STEM_BIND_DRAIN_RATIO = 0.08;
+const THREE_MEETING_TRANSFORM_DRAIN_RATIO = 0.35;
+const THREE_HARMONY_TRANSFORM_DRAIN_RATIO = 0.30;
+const SIX_COMBINATION_TRANSFORM_DRAIN_RATIO = 0.20;
+const CONTROLLING_DRAIN_RATIO = 0.30;
+const RESTRAINING_FLOW_RATIO = 0.012;
+const RESTRAINING_DRAIN_RATIO = 0.20;
+const DIRECT_STEM_CONTROL_DRAIN_RATIO = 0.25;
+const SAME_ELEMENT_ROOT_RATIOS = [0.85, 0.25, 0.15, 0.10];
+
+const ZHI_HIDDEN_STEMS: Record<string, string[]> = {
+  '子': ['癸'],
+  '丑': ['己', '癸', '辛'],
+  '寅': ['甲', '丙', '戊'],
+  '卯': ['乙'],
+  '辰': ['戊', '乙', '癸'],
+  '巳': ['丙', '戊', '庚'],
+  '午': ['丁', '己'],
+  '未': ['己', '丁', '乙'],
+  '申': ['庚', '壬', '戊'],
+  '酉': ['辛'],
+  '戌': ['戊', '辛', '丁'],
+  '亥': ['壬', '甲'],
+};
+
+const MONTH_SEASON_STAGE: Record<string, Record<WuxingElement, number>> = {
+  '寅': { 木: 1.22, 火: 1.1, 土: 0.8, 金: 0.9, 水: 1.0 },
+  '卯': { 木: 1.22, 火: 1.1, 土: 0.8, 金: 0.9, 水: 1.0 },
+  '辰': { 木: 1.05, 火: 1.05, 土: 1.18, 金: 0.85, 水: 0.95 },
+  '巳': { 木: 1.0, 火: 1.22, 土: 1.1, 金: 0.8, 水: 0.9 },
+  '午': { 木: 1.0, 火: 1.22, 土: 1.1, 金: 0.8, 水: 0.9 },
+  '未': { 木: 0.9, 火: 1.05, 土: 1.18, 金: 0.95, 水: 0.85 },
+  '申': { 木: 0.8, 火: 0.9, 土: 1.0, 金: 1.22, 水: 1.1 },
+  '酉': { 木: 0.8, 火: 0.9, 土: 1.0, 金: 1.22, 水: 1.1 },
+  '戌': { 木: 0.85, 火: 0.95, 土: 1.18, 金: 0.95, 水: 1.0 },
+  '亥': { 木: 1.1, 火: 0.8, 土: 0.9, 金: 1.0, 水: 1.22 },
+  '子': { 木: 1.1, 火: 0.8, 土: 0.9, 金: 1.0, 水: 1.22 },
+  '丑': { 木: 0.95, 火: 0.85, 土: 1.18, 金: 1.0, 水: 1.05 },
+};
+
+const BRANCH_CLASHES: Array<[string, string]> = [
+  ['子', '午'], ['丑', '未'], ['寅', '申'], ['卯', '酉'], ['辰', '戌'], ['巳', '亥'],
+];
+
+const BRANCH_HARMS: Array<[string, string]> = [
+  ['子', '未'], ['丑', '午'], ['寅', '巳'], ['卯', '辰'], ['申', '亥'], ['酉', '戌'],
+];
+
+const BRANCH_PUNISHMENTS: Array<[string, string]> = [
+  ['子', '卯'], ['寅', '巳'], ['巳', '申'], ['丑', '戌'], ['戌', '未'], ['丑', '未'],
+];
+
+const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: WuxingElement }> = [
+  { branches: ['子', '丑'], element: '土' },
+  { branches: ['寅', '亥'], element: '木' },
+  { branches: ['卯', '戌'], element: '火' },
+  { branches: ['辰', '酉'], element: '金' },
+  { branches: ['巳', '申'], element: '水' },
+  { branches: ['午', '未'], element: '土' },
+];
+
+const BRANCH_THREE_HARMONIES: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = [
+  { branches: ['申', '子', '辰'], element: '水', center: '子' },
+  { branches: ['亥', '卯', '未'], element: '木', center: '卯' },
+  { branches: ['寅', '午', '戌'], element: '火', center: '午' },
+  { branches: ['巳', '酉', '丑'], element: '金', center: '酉' },
+];
+
+const BRANCH_THREE_MEETINGS: Array<{ branches: [string, string, string]; element: WuxingElement }> = [
+  { branches: ['寅', '卯', '辰'], element: '木' },
+  { branches: ['巳', '午', '未'], element: '火' },
+  { branches: ['申', '酉', '戌'], element: '金' },
+  { branches: ['亥', '子', '丑'], element: '水' },
+];
+
+const STEM_COMBINATIONS: Array<{ stems: [string, string]; element: WuxingElement }> = [
+  { stems: ['甲', '己'], element: '土' },
+  { stems: ['乙', '庚'], element: '金' },
+  { stems: ['丙', '辛'], element: '水' },
+  { stems: ['丁', '壬'], element: '木' },
+  { stems: ['戊', '癸'], element: '火' },
+];
 
 const SHI_SHEN_ZHI: Record<string, string> = {
   '甲子': '正印', '甲丑': '正财', '甲寅': '比肩', '甲卯': '劫财', '甲辰': '偏财', '甲巳': '食神', '甲午': '伤官', '甲未': '正财', '甲申': '七杀', '甲酉': '正官', '甲戌': '偏财', '甲亥': '偏印',
@@ -387,6 +550,12 @@ export async function calculateFullChart(
 
   // ── 步骤 6：计算五行分析 ────────────────────────────────────
   const wuxing = calculateWuxing(yearGan, yearZhi, monthGan, monthZhi, dayGan, dayZhi, timeGan, timeZhi);
+  const weightedWuxing = calculateWeightedWuxingFromPillars({
+    year: yearPillar,
+    month: monthPillar,
+    day: dayPillar,
+    time: timePillar,
+  }, dayGan);
 
   // ── 步骤 7：计算大运 ────────────────────────────────────────
   const yun = bazi.getYun(gender, sect);
@@ -435,6 +604,7 @@ export async function calculateFullChart(
     time: timePillar,
 
     wuxing,
+    weightedWuxing,
 
     startAge,
     startDate,
@@ -810,6 +980,786 @@ function calculateWuxing(
     火: count['火'], 土: count['土'],
     dominant, lacking,
   };
+}
+
+export function calculateWeightedWuxingFromChart(chart: any): WeightedWuxingAnalysis {
+  return calculateWeightedWuxingFromPillars({
+    year: chart?.year,
+    month: chart?.month,
+    day: chart?.day,
+    time: chart?.time,
+  }, chart?.dayMaster || chart?.day?.stem || '');
+}
+
+function calculateWeightedWuxingFromPillars(
+  pillars: Record<PillarPosition, PillarData>,
+  dayGan: string,
+): WeightedWuxingAnalysis {
+  const rawScores = emptyElementScores();
+  const contributions: WeightedWuxingContribution[] = [];
+  const monthBranch = pillars.month?.branch || '';
+
+  const addContribution = (input: WeightedWuxingContribution) => {
+    if (!isWuxingElement(input.element) || !Number.isFinite(input.score) || input.score === 0) return;
+    const roundedScore = round2(input.score);
+    if (roundedScore === 0) return;
+    rawScores[input.element] += input.score;
+    contributions.push({
+      ...input,
+      score: roundedScore,
+    });
+  };
+
+  (Object.keys(pillars) as PillarPosition[]).forEach((position) => {
+    const pillar = pillars[position];
+    if (!pillar) return;
+
+    const stemElement = toWuxingElement(pillar.stemElement || GAN_WUXING[pillar.stem]);
+    if (stemElement) {
+      addContribution({
+        element: stemElement,
+        score: STEM_POSITION_WEIGHTS[position] * seasonMultiplier(stemElement, monthBranch),
+        source: `${position}_stem`,
+        pillar: position,
+        stem: pillar.stem,
+        note: `${pillar.name}天干${pillar.stem}${stemElement}显性能量`,
+      });
+    }
+
+    const hiddenStems = getCanonicalHiddenStems(pillar);
+    hiddenStems.forEach((hidden, index) => {
+      const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+      if (!hiddenElement) return;
+      const qiWeight = hiddenQiWeight(pillar.branch, hiddenStems, index);
+      const commandMultiplier = position === 'month' ? (1.08 - Math.min(index, 2) * 0.04) : 1;
+      const hiddenSeasonMultiplier = position === 'month' ? 1 : seasonMultiplier(hiddenElement, monthBranch);
+      addContribution({
+        element: hiddenElement,
+        score: BRANCH_POSITION_WEIGHTS[position] * qiWeight * commandMultiplier * hiddenSeasonMultiplier,
+        source: `${position}_hidden_${hiddenQiName(index)}`,
+        pillar: position,
+        stem: hidden.stem,
+        branch: pillar.branch,
+        note: `${pillar.name}${pillar.branch}藏${hiddenQiName(index)}${hidden.stem}${hiddenElement}`,
+      });
+    });
+  });
+
+  applyRootedPenetration(pillars, monthBranch, addContribution);
+  applyStemDirectControls(pillars, monthBranch, addContribution);
+  applyBranchRelations(pillars, monthBranch, addContribution);
+  applyStemCombinations(pillars, monthBranch, addContribution);
+  applyElementFlowAdjustments(rawScores, addContribution);
+
+  WUXING_ELEMENTS.forEach((element) => {
+    if (rawScores[element] < 0) rawScores[element] = 0;
+  });
+
+  const total = WUXING_ELEMENTS.reduce((sum, element) => sum + rawScores[element], 0);
+  const scores = WUXING_ELEMENTS.reduce((acc, element) => {
+    acc[element] = {
+      raw: round2(rawScores[element]),
+      percent: total > 0 ? round2((rawScores[element] / total) * 100) : 0,
+    };
+    return acc;
+  }, {} as Record<string, WeightedElementScore>);
+
+  const sorted = [...WUXING_ELEMENTS].sort((a, b) => rawScores[b] - rawScores[a]);
+  const dayMasterStrength = calculateDayMasterStrength(dayGan, monthBranch, contributions);
+
+  return {
+    methodVersion: 'weighted_wuxing_v2_9',
+    scores,
+    dominant: sorted[0],
+    weakest: sorted[sorted.length - 1],
+    balanceIndex: calculateBalanceIndex(scores),
+    dayMasterStrength,
+    majorFactors: buildMajorFactors(pillars, sorted[0], sorted[sorted.length - 1], dayMasterStrength),
+    contributions: topContributions(contributions),
+  };
+}
+
+function emptyElementScores(): Record<WuxingElement, number> {
+  return { 木: 0, 火: 0, 土: 0, 金: 0, 水: 0 };
+}
+
+function toWuxingElement(value: string | undefined): WuxingElement | undefined {
+  return isWuxingElement(value) ? value : undefined;
+}
+
+function isWuxingElement(value: string | undefined): value is WuxingElement {
+  return !!value && (WUXING_ELEMENTS as readonly string[]).includes(value);
+}
+
+function getCanonicalHiddenStems(pillar: PillarData): HiddenStemData[] {
+  const canonical = ZHI_HIDDEN_STEMS[pillar?.branch] || [];
+  if (canonical.length === 0) return pillar?.hiddenStems || [];
+
+  return canonical.map((stem) => {
+    const existing = (pillar.hiddenStems || []).find(item => item.stem === stem);
+    return existing || {
+      stem,
+      tenGod: '',
+      element: GAN_WUXING[stem] || '',
+    };
+  });
+}
+
+function seasonMultiplier(element: WuxingElement, monthBranch: string): number {
+  return MONTH_SEASON_STAGE[monthBranch]?.[element] || 1;
+}
+
+function hiddenQiName(index: number): string {
+  if (index === 0) return 'main';
+  if (index === 1) return 'middle';
+  return 'residual';
+}
+
+function applyRootedPenetration(
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  const visibleStems = (Object.keys(pillars) as PillarPosition[])
+    .map(position => ({ position, stem: pillars[position]?.stem, element: toWuxingElement(pillars[position]?.stemElement) }))
+    .filter(item => item.stem && item.element);
+
+  visibleStems.forEach((visible) => {
+    (Object.keys(pillars) as PillarPosition[]).forEach((rootPosition) => {
+      const pillar = pillars[rootPosition];
+      const hiddenStems = getCanonicalHiddenStems(pillar);
+      hiddenStems.forEach((hidden, rootIndex) => {
+        if (!visible.element) return;
+        const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+        if (!hiddenElement || hiddenElement !== visible.element) return;
+
+        if (hidden.stem === visible.stem) {
+          const rootWeight = rootedPenetrationWeight(hiddenStems, rootIndex);
+          addContribution({
+            element: visible.element,
+            score: BRANCH_POSITION_WEIGHTS[rootPosition] * rootWeight * seasonMultiplier(visible.element, monthBranch),
+            source: 'rooted_penetration',
+            pillar: rootPosition,
+            stem: visible.stem,
+            branch: pillar.branch,
+            note: `${visible.stem}${visible.element}在${pillar.name}${pillar.branch}有根且透出`,
+          });
+          return;
+        }
+
+        addContribution({
+          element: visible.element,
+          score: hiddenStemBaseScore(rootPosition, pillar.branch, hiddenStems, hiddenElement, rootIndex, monthBranch) *
+            sameElementRootRatio(visible.position, rootPosition),
+          source: 'elemental_rooted_penetration',
+          pillar: rootPosition,
+          stem: visible.stem,
+          branch: pillar.branch,
+          note: `${visible.stem}${visible.element}得${pillar.name}${pillar.branch}藏${hidden.stem}${hiddenElement}同气通根`,
+        });
+      });
+    });
+  });
+}
+
+function applyStemDirectControls(
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  const ordered = (Object.keys(pillars) as PillarPosition[])
+    .map(position => ({
+      position,
+      stem: pillars[position]?.stem,
+      element: toWuxingElement(pillars[position]?.stemElement || GAN_WUXING[pillars[position]?.stem]),
+    }))
+    .filter(item => item.stem && item.element);
+
+  for (let index = 0; index < ordered.length - 1; index += 1) {
+    applyStemControlPair(ordered[index], ordered[index + 1], monthBranch, addContribution);
+    applyStemControlPair(ordered[index + 1], ordered[index], monthBranch, addContribution);
+  }
+}
+
+function applyStemControlPair(
+  controller: { position: PillarPosition; stem: string | undefined; element: WuxingElement | undefined },
+  controlled: { position: PillarPosition; stem: string | undefined; element: WuxingElement | undefined },
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  if (!controller.element || !controlled.element || WUXING_CONTROLS[controller.element] !== controlled.element) return;
+
+  const base = STEM_POSITION_WEIGHTS[controlled.position] * seasonMultiplier(controlled.element, monthBranch);
+  const ratio = controller.position === 'month' && controlled.position === 'day' ? 0.10 : 0.06;
+  const amount = base * ratio;
+  addContribution({
+    element: controlled.element,
+    score: -amount,
+    source: 'direct_stem_control',
+    pillar: controlled.position,
+    stem: `${controller.stem}${controlled.stem}`,
+    note: `${pillarPositionLabel(controller.position)}干${controller.stem}${controller.element}贴近克${pillarPositionLabel(controlled.position)}干${controlled.stem}${controlled.element}`,
+  });
+  addContribution({
+    element: controller.element,
+    score: -amount * DIRECT_STEM_CONTROL_DRAIN_RATIO,
+    source: 'direct_stem_control_drain',
+    pillar: controller.position,
+    stem: `${controller.stem}${controlled.stem}`,
+    note: `${controller.stem}${controller.element}克${controlled.stem}${controlled.element}，贴身克伐自身耗气`,
+  });
+}
+
+function applyBranchRelations(
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  const branchItems = (Object.keys(pillars) as PillarPosition[])
+    .map(position => ({ position, branch: pillars[position]?.branch, element: toWuxingElement(pillars[position]?.branchElement) }))
+    .filter(item => item.branch && item.element);
+  const branches = branchItems.map(item => item.branch);
+
+  applyDirectionalBranchClashes(pillars, branchItems, monthBranch, addContribution);
+  applyNegativeBranchPair(BRANCH_HARMS, 'branch_harm', 0.05, '六害轻微削弱相关地支藏干气势', pillars, branchItems, monthBranch, addContribution);
+  applyNegativeBranchPair(BRANCH_PUNISHMENTS, 'branch_punishment', 0.04, '刑关系轻微削弱相关地支藏干气势', pillars, branchItems, monthBranch, addContribution);
+
+  BRANCH_THREE_MEETINGS.forEach((rule) => {
+    const matched = rule.branches.filter(branch => branches.includes(branch));
+    if (matched.length === 3) {
+      addContribution({
+        element: rule.element,
+        score: sumBranchWeights(matched, branchItems) * 0.22 * seasonMultiplier(rule.element, monthBranch),
+        source: 'three_meeting',
+        note: `${rule.branches.join('')}三会${rule.element}局成势`,
+      });
+      applyBranchTransformationDrain(matched, rule.element, 'three_meeting_transform_drain', THREE_MEETING_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
+    } else {
+      const adjacentPair = findBestAdjacentBranchPair(rule.branches, branchItems);
+      if (!adjacentPair) return;
+      addContribution({
+        element: rule.element,
+        score: sumBranchItemWeights(adjacentPair) * 0.04 * seasonMultiplier(rule.element, monthBranch),
+        source: 'partial_three_meeting',
+        note: `${adjacentPair.map(item => item.branch).join('')}相邻半会${rule.element}气`,
+      });
+    }
+  });
+
+  BRANCH_THREE_HARMONIES.forEach((rule) => {
+    const matched = rule.branches.filter(branch => branches.includes(branch));
+    if (matched.length === 3) {
+      addContribution({
+        element: rule.element,
+        score: sumBranchWeights(matched, branchItems) * 0.18 * seasonMultiplier(rule.element, monthBranch),
+        source: 'three_harmony',
+        note: `${rule.branches.join('')}三合${rule.element}局成势`,
+      });
+      applyBranchTransformationDrain(matched, rule.element, 'three_harmony_transform_drain', THREE_HARMONY_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
+    } else {
+      const adjacentPair = findBestAdjacentBranchPair(rule.branches, branchItems, rule.center);
+      if (!adjacentPair) return;
+      addContribution({
+        element: rule.element,
+        score: sumBranchItemWeights(adjacentPair) * 0.05 * seasonMultiplier(rule.element, monthBranch),
+        source: 'partial_three_harmony',
+        note: `${adjacentPair.map(item => item.branch).join('')}相邻半合${rule.element}气`,
+      });
+    }
+  });
+
+  BRANCH_SIX_COMBINATIONS.forEach((rule) => {
+    const [left, right] = rule.branches;
+    if (!branches.includes(left) || !branches.includes(right)) return;
+    const canTransform = hasStrongTransformSupport(pillars, rule.element, monthBranch);
+    addContribution({
+      element: rule.element,
+      score: sumBranchWeights([left, right], branchItems) * (canTransform ? 0.05 : 0.015) * seasonMultiplier(rule.element, monthBranch),
+      source: canTransform ? 'six_combination_transform' : 'six_combination_bind',
+      note: `${left}${right}六合${canTransform ? `化${rule.element}` : '有情未化'}`,
+    });
+    if (canTransform) {
+      applyBranchTransformationDrain([left, right], rule.element, 'six_combination_transform_drain', SIX_COMBINATION_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
+    }
+  });
+}
+
+function applyStemCombinations(
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  const stemItems = (Object.keys(pillars) as PillarPosition[])
+    .map(position => ({
+      position,
+      stem: pillars[position]?.stem,
+      element: toWuxingElement(pillars[position]?.stemElement || GAN_WUXING[pillars[position]?.stem]),
+    }))
+    .filter(item => item.stem && item.element);
+  const stems = stemItems.map(item => item.stem);
+  STEM_COMBINATIONS.forEach((rule) => {
+    const [left, right] = rule.stems;
+    if (!stems.includes(left) || !stems.includes(right)) return;
+    const canTransform = hasStrongTransformSupport(pillars, rule.element, monthBranch) && !hasStrongVisibleController(pillars, rule.element);
+    addContribution({
+      element: rule.element,
+      score: (canTransform ? 0.25 : 0.08) * seasonMultiplier(rule.element, monthBranch),
+      source: canTransform ? 'stem_combination_transform' : 'stem_combination_bind',
+      stem: `${left}${right}`,
+      note: `${left}${right}天干合${canTransform ? `化${rule.element}` : '有合未化'}`,
+    });
+    const matchedItems = stemItems.filter(item => item.stem === left || item.stem === right);
+    matchedItems.forEach((item) => {
+      if (!item.element) return;
+      const ratio = canTransform ? STEM_TRANSFORM_DRAIN_RATIO : STEM_BIND_DRAIN_RATIO * stemBindDistanceRatio(matchedItems);
+      addContribution({
+        element: item.element,
+        score: -STEM_POSITION_WEIGHTS[item.position] * seasonMultiplier(item.element, monthBranch) * ratio,
+        source: canTransform ? 'stem_combination_transform_drain' : 'stem_combination_bind_drain',
+        pillar: item.position,
+        stem: item.stem,
+        note: `${left}${right}天干合${canTransform ? `化${rule.element}` : '而未化'}，${item.stem}${item.element}原气${canTransform ? '折减' : '轻微牵绊'}`,
+      });
+    });
+  });
+}
+
+function applyElementFlowAdjustments(
+  rawScores: Record<WuxingElement, number>,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  const snapshot = { ...rawScores };
+  const average = WUXING_ELEMENTS.reduce((sum, element) => sum + snapshot[element], 0) / WUXING_ELEMENTS.length;
+  if (average <= 0) return;
+
+  WUXING_ELEMENTS.forEach((source) => {
+    const sourceScore = snapshot[source];
+    if (sourceScore <= 0) return;
+
+    const generated = toWuxingElement(WUXING_GENERATES[source]);
+    if (generated && sourceScore >= average * 0.75) {
+      const generatedScore = snapshot[generated];
+      const flowPressure = sourceScore > generatedScore ? 1 : 0.6;
+      const generateAmount = sourceScore * 0.045 * flowPressure;
+      const drainAmount = sourceScore * 0.018 * flowPressure;
+      addContribution({
+        element: generated,
+        score: generateAmount,
+        source: 'generating_flow',
+        note: `${source}生${generated}，原局气势流通`,
+      });
+      addContribution({
+        element: source,
+        score: -drainAmount,
+        source: 'draining_flow',
+        note: `${source}生${generated}而自身轻微泄气`,
+      });
+    }
+
+    const controlled = toWuxingElement(WUXING_CONTROLS[source]);
+    if (!controlled) return;
+    const controlledScore = snapshot[controlled];
+    if (controlledScore <= 0) return;
+
+    const restrainAmount = Math.min(controlledScore * RESTRAINING_FLOW_RATIO, sourceScore * RESTRAINING_FLOW_RATIO);
+    addContribution({
+      element: controlled,
+      score: -restrainAmount,
+      source: 'restraining_flow',
+      note: `${source}克${controlled}，五行循环形成基础约束`,
+    });
+    addContribution({
+      element: source,
+      score: -restrainAmount * RESTRAINING_DRAIN_RATIO,
+      source: 'restraining_drain',
+      note: `${source}克${controlled}，基础制约自身轻微耗气`,
+    });
+
+    const dominanceRatio = sourceScore / controlledScore;
+    if (sourceScore < average || dominanceRatio < 1.2) return;
+
+    const suppressAmount = Math.min(controlledScore * 0.055, sourceScore * 0.03);
+    addContribution({
+      element: controlled,
+      score: -suppressAmount,
+      source: 'controlling_flow',
+      note: `${source}克${controlled}，强者对被克五行形成压制`,
+    });
+    addContribution({
+      element: source,
+      score: -suppressAmount * CONTROLLING_DRAIN_RATIO,
+      source: 'controlling_drain',
+      note: `${source}克${controlled}，克伐过程自身轻微耗气`,
+    });
+  });
+}
+
+function applyDirectionalBranchClashes(
+  pillars: Record<PillarPosition, PillarData>,
+  branchItems: Array<{ position: PillarPosition; branch: string | undefined; element: WuxingElement | undefined }>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  BRANCH_CLASHES.forEach(([left, right]) => {
+    const leftItems = branchItems.filter(item => item.branch === left);
+    const rightItems = branchItems.filter(item => item.branch === right);
+    if (leftItems.length === 0 || rightItems.length === 0) return;
+
+    [...leftItems, ...rightItems].forEach((item) => {
+      if (!item.branch || !item.element) return;
+      const opposite = item.branch === left ? rightItems[0] : leftItems[0];
+      if (!opposite?.branch || !opposite.element) return;
+      const ratio = directionalClashRatio(item, opposite, pillars, monthBranch);
+      const pillar = pillars[item.position];
+      const hiddenStems = getCanonicalHiddenStems(pillar);
+      hiddenStems.forEach((hidden, index) => {
+        const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+        if (!hiddenElement) return;
+        addContribution({
+          element: hiddenElement,
+          score: -hiddenStemBaseScore(item.position, pillar.branch, hiddenStems, hiddenElement, index, monthBranch) * ratio,
+          source: 'directional_branch_clash',
+          pillar: item.position,
+          stem: hidden.stem,
+          branch: item.branch,
+          note: `${left}${right}六冲按五行强弱方向削弱${item.branch}藏干`,
+        });
+      });
+    });
+  });
+}
+
+function directionalClashRatio(
+  current: { position: PillarPosition; branch: string | undefined; element: WuxingElement | undefined },
+  opposite: { position: PillarPosition; branch: string | undefined; element: WuxingElement | undefined },
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+): number {
+  if (!current.branch || !current.element || !opposite.branch || !opposite.element) return 0.10;
+
+  const currentStrength = branchStrength(current, pillars, monthBranch);
+  const oppositeStrength = branchStrength(opposite, pillars, monthBranch);
+
+  if (isEarthStorageClash(current.branch, opposite.branch)) {
+    if (currentStrength < oppositeStrength * 0.90) return 0.12;
+    if (currentStrength > oppositeStrength * 1.10) return 0.08;
+    return 0.10;
+  }
+
+  const oppositeControlsCurrent = WUXING_CONTROLS[opposite.element] === current.element;
+  const currentControlsOpposite = WUXING_CONTROLS[current.element] === opposite.element;
+
+  if (oppositeControlsCurrent) {
+    return oppositeStrength >= currentStrength ? 0.15 : 0.12;
+  }
+  if (currentControlsOpposite) {
+    return currentStrength >= oppositeStrength ? 0.06 : 0.08;
+  }
+  if (currentStrength < oppositeStrength * 0.90) return 0.12;
+  if (currentStrength > oppositeStrength * 1.10) return 0.08;
+  return 0.10;
+}
+
+function branchStrength(
+  item: { position: PillarPosition; branch: string | undefined },
+  pillars: Record<PillarPosition, PillarData>,
+  monthBranch: string,
+): number {
+  const pillar = pillars[item.position];
+  const hiddenStems = getCanonicalHiddenStems(pillar);
+  return hiddenStems.reduce((sum, hidden, index) => {
+    const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+    if (!hiddenElement) return sum;
+    return sum + hiddenStemBaseScore(item.position, pillar.branch, hiddenStems, hiddenElement, index, monthBranch);
+  }, 0);
+}
+
+function isEarthStorageClash(left: string, right: string): boolean {
+  return (left === '辰' && right === '戌') ||
+    (left === '戌' && right === '辰') ||
+    (left === '丑' && right === '未') ||
+    (left === '未' && right === '丑');
+}
+
+function applyBranchTransformationDrain(
+  branches: string[],
+  targetElement: WuxingElement,
+  source: string,
+  ratio: number,
+  pillars: Record<PillarPosition, PillarData>,
+  branchItems: Array<{ position: PillarPosition; branch: string | undefined }>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  branchItems
+    .filter(item => item.branch && branches.includes(item.branch))
+    .forEach((item) => {
+      if (!item.branch) return;
+      const pillar = pillars[item.position];
+      const hiddenStems = getCanonicalHiddenStems(pillar);
+      hiddenStems.forEach((hidden, index) => {
+        const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+        if (!hiddenElement || hiddenElement === targetElement) return;
+        addContribution({
+          element: hiddenElement,
+          score: -hiddenStemBaseScore(item.position, pillar.branch, hiddenStems, hiddenElement, index, monthBranch) * ratio,
+          source,
+          pillar: item.position,
+          stem: hidden.stem,
+          branch: item.branch,
+          note: `${branches.join('')}成化${targetElement}，${item.branch}藏${hidden.stem}${hiddenElement}原气折减`,
+        });
+      });
+    });
+}
+
+function applyNegativeBranchPair(
+  pairs: Array<[string, string]>,
+  source: string,
+  ratio: number,
+  note: string,
+  pillars: Record<PillarPosition, PillarData>,
+  branchItems: Array<{ position: PillarPosition; branch: string | undefined; element: WuxingElement | undefined }>,
+  monthBranch: string,
+  addContribution: (input: WeightedWuxingContribution) => void,
+): void {
+  pairs.forEach(([left, right]) => {
+    const hasLeft = branchItems.some(item => item.branch === left);
+    const hasRight = branchItems.some(item => item.branch === right);
+    if (!hasLeft || !hasRight) return;
+    const matched = branchItems.filter(item => item.branch === left || item.branch === right);
+    matched.forEach((item) => {
+      if (!item.branch) return;
+      const pillar = pillars[item.position];
+      const hiddenStems = getCanonicalHiddenStems(pillar);
+      hiddenStems.forEach((hidden, index) => {
+        const hiddenElement = toWuxingElement(hidden.element || GAN_WUXING[hidden.stem]);
+        if (!hiddenElement) return;
+        addContribution({
+          element: hiddenElement,
+          score: -hiddenStemBaseScore(item.position, pillar.branch, hiddenStems, hiddenElement, index, monthBranch) * ratio,
+          source,
+          pillar: item.position,
+          stem: hidden.stem,
+          branch: item.branch,
+          note,
+        });
+      });
+    });
+  });
+}
+
+function hiddenStemBaseScore(
+  position: PillarPosition,
+  branch: string,
+  hiddenStems: HiddenStemData[],
+  hiddenElement: WuxingElement,
+  hiddenIndex: number,
+  monthBranch: string,
+): number {
+  const qiWeight = hiddenQiWeight(branch, hiddenStems, hiddenIndex);
+  const commandMultiplier = position === 'month' ? (1.08 - Math.min(hiddenIndex, 2) * 0.04) : 1;
+  const hiddenSeasonMultiplier = position === 'month' ? 1 : seasonMultiplier(hiddenElement, monthBranch);
+  return BRANCH_POSITION_WEIGHTS[position] * qiWeight * commandMultiplier * hiddenSeasonMultiplier;
+}
+
+function hiddenQiWeight(branch: string, hiddenStems: HiddenStemData[], index: number): number {
+  const weights = ZHI_HIDDEN_QI_WEIGHTS[branch] || HIDDEN_QI_WEIGHTS_BY_COUNT[hiddenStems.length] || HIDDEN_QI_WEIGHTS_BY_COUNT[3];
+  return weights[index] ?? weights[weights.length - 1];
+}
+
+function rootedPenetrationWeight(hiddenStems: HiddenStemData[], index: number): number {
+  const weights = ROOTED_PENETRATION_WEIGHTS_BY_COUNT[hiddenStems.length] || ROOTED_PENETRATION_WEIGHTS_BY_COUNT[3];
+  return weights[index] ?? weights[weights.length - 1];
+}
+
+function sameElementRootRatio(visiblePosition: PillarPosition, rootPosition: PillarPosition): number {
+  const order: Record<PillarPosition, number> = { year: 0, month: 1, day: 2, time: 3 };
+  const distance = Math.abs(order[visiblePosition] - order[rootPosition]);
+  return SAME_ELEMENT_ROOT_RATIOS[distance] ?? SAME_ELEMENT_ROOT_RATIOS[SAME_ELEMENT_ROOT_RATIOS.length - 1];
+}
+
+function stemBindDistanceRatio(items: Array<{ position: PillarPosition }>): number {
+  if (items.length < 2) return 1;
+  const order: Record<PillarPosition, number> = { year: 0, month: 1, day: 2, time: 3 };
+  const distance = Math.abs(order[items[0].position] - order[items[1].position]);
+  if (distance <= 1) return 1;
+  if (distance === 2) return 0.55;
+  return 0.35;
+}
+
+function pillarPositionLabel(position: PillarPosition): string {
+  const labels: Record<PillarPosition, string> = {
+    year: '年',
+    month: '月',
+    day: '日',
+    time: '时',
+  };
+  return labels[position];
+}
+
+function sumBranchWeights(
+  branches: string[],
+  branchItems: Array<{ position: PillarPosition; branch: string | undefined }>,
+): number {
+  return branches.reduce((sum, branch) => {
+    const best = branchItems
+      .filter(item => item.branch === branch)
+      .reduce((max, item) => Math.max(max, BRANCH_POSITION_WEIGHTS[item.position]), 0);
+    return sum + best;
+  }, 0);
+}
+
+function sumBranchItemWeights(items: Array<{ position: PillarPosition }>): number {
+  return items.reduce((sum, item) => sum + BRANCH_POSITION_WEIGHTS[item.position], 0);
+}
+
+function findBestAdjacentBranchPair(
+  ruleBranches: string[],
+  branchItems: Array<{ position: PillarPosition; branch: string | undefined }>,
+  requiredBranch?: string,
+): Array<{ position: PillarPosition; branch: string | undefined }> | null {
+  let bestPair: Array<{ position: PillarPosition; branch: string | undefined }> | null = null;
+  let bestScore = -Infinity;
+
+  for (let index = 0; index < branchItems.length - 1; index += 1) {
+    const pair = [branchItems[index], branchItems[index + 1]];
+    if (!pair.every(item => item.branch && ruleBranches.includes(item.branch))) continue;
+    if (pair[0].branch === pair[1].branch) continue;
+    if (requiredBranch && !pair.some(item => item.branch === requiredBranch)) continue;
+
+    const score = sumBranchItemWeights(pair);
+    if (score > bestScore) {
+      bestPair = pair;
+      bestScore = score;
+    }
+  }
+
+  return bestPair;
+}
+
+function hasStrongTransformSupport(
+  pillars: Record<PillarPosition, PillarData>,
+  element: WuxingElement,
+  monthBranch: string,
+): boolean {
+  return seasonMultiplier(element, monthBranch) >= 1.1 ||
+    hasMainQiElement(pillars, element) ||
+    (hasVisibleElement(pillars, element) && hasHiddenElement(pillars, element));
+}
+
+function hasVisibleElement(pillars: Record<PillarPosition, PillarData>, element: WuxingElement): boolean {
+  return (Object.keys(pillars) as PillarPosition[]).some(position => pillars[position]?.stemElement === element);
+}
+
+function hasHiddenElement(pillars: Record<PillarPosition, PillarData>, element: WuxingElement): boolean {
+  return (Object.keys(pillars) as PillarPosition[])
+    .some(position => getCanonicalHiddenStems(pillars[position]).some(hidden => (hidden.element || GAN_WUXING[hidden.stem]) === element));
+}
+
+function hasMainQiElement(pillars: Record<PillarPosition, PillarData>, element: WuxingElement): boolean {
+  return (Object.keys(pillars) as PillarPosition[])
+    .some(position => {
+      const mainHidden = getCanonicalHiddenStems(pillars[position])[0];
+      return (mainHidden?.element || GAN_WUXING[mainHidden?.stem]) === element;
+    });
+}
+
+function hasStrongVisibleController(pillars: Record<PillarPosition, PillarData>, element: WuxingElement): boolean {
+  const controller = WUXING_ELEMENTS.find(item => WUXING_CONTROLS[item] === element);
+  if (!controller) return false;
+  return (Object.keys(pillars) as PillarPosition[]).some(position => {
+    const pillar = pillars[position];
+    return pillar?.stemElement === controller && STEM_POSITION_WEIGHTS[position] >= 1;
+  });
+}
+
+function calculateDayMasterStrength(
+  dayGan: string,
+  monthBranch: string,
+  contributions: WeightedWuxingContribution[],
+): DayMasterStrength {
+  const dayElement = toWuxingElement(GAN_WUXING[dayGan]);
+  if (!dayElement) {
+    return { score: 0, label: 'unknown', supportScore: 0, drainScore: 0 };
+  }
+
+  const resourceElement = WUXING_ELEMENTS.find(element => WUXING_GENERATES[element] === dayElement);
+  let supportScore = 0;
+  let drainScore = 0;
+
+  contributions.forEach((item) => {
+    if (item.source === 'day_stem') return;
+    const element = toWuxingElement(item.element);
+    if (!element) return;
+    const amount = item.score;
+    const supportsDay = element === dayElement || element === resourceElement;
+    if (supportsDay) {
+      supportScore += amount;
+    } else {
+      drainScore += amount;
+    }
+  });
+
+  supportScore = Math.max(0, supportScore);
+  drainScore = Math.max(0, drainScore);
+  const total = supportScore + drainScore;
+  const score = total > 0 ? Math.round((supportScore / total) * 200 - 100) : 0;
+
+  return {
+    score,
+    label: dayMasterStrengthLabel(score),
+    supportScore: round2(supportScore),
+    drainScore: round2(drainScore),
+  };
+}
+
+function dayMasterStrengthLabel(score: number): string {
+  if (score > 60) return 'extremely_strong';
+  if (score > 30) return 'strong';
+  if (score >= -10) return 'balanced';
+  if (score >= -30) return 'neutral_weak';
+  if (score >= -60) return 'weak';
+  return 'extremely_weak';
+}
+
+function calculateBalanceIndex(scores: Record<string, WeightedElementScore>): number {
+  const totalDeviation = WUXING_ELEMENTS.reduce((sum, element) => {
+    return sum + Math.abs((scores[element]?.percent || 0) - 20);
+  }, 0);
+  return round2(Math.max(0, 1 - totalDeviation / 160));
+}
+
+function buildMajorFactors(
+  pillars: Record<PillarPosition, PillarData>,
+  dominant: string,
+  weakest: string,
+  strength: DayMasterStrength,
+): string[] {
+  const factors = [
+    `月令${pillars.month?.branch || ''}${pillars.month?.branchElement || ''}主导季节气势`,
+    `${dominant}为当前加权最强五行`,
+    `${weakest}为当前加权最弱五行`,
+    `日主${pillars.day?.stem || ''}${pillars.day?.stemElement || ''}强弱为${strength.label}`,
+  ];
+
+  const visible = (Object.keys(pillars) as PillarPosition[])
+    .map(position => pillars[position]?.stem)
+    .filter(Boolean)
+    .join('');
+  if (visible) factors.push(`天干${visible}透出参与显性能量`);
+
+  return factors;
+}
+
+function topContributions(contributions: WeightedWuxingContribution[]): WeightedWuxingContribution[] {
+  return [...contributions]
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, 64);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /**

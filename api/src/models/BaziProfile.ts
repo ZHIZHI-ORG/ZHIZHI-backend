@@ -70,6 +70,12 @@ export interface BaziProfile {
   // 可选扩展字段（simple.md §4.3）
   birth_country?: string;  // 出生国家
   birth_region?: string;   // 出生地区（省/市/区）
+  birth_latitude?: number;  // 出生地纬度
+  birth_longitude?: number; // 出生地经度
+  time_basis?: 'standard_time' | 'true_solar_time'; // 排盘时间基准
+  true_solar_time?: string; // 后端校准后的真太阳时
+  true_solar_correction_minutes?: number; // 真太阳时总校正分钟数
+  calculation_metadata?: any; // 排盘校准元信息
   mbti?: string;           // MBTI 类型
 
   // 备注
@@ -102,6 +108,8 @@ export interface CreateBaziProfileInput {
   // 可选扩展字段（simple.md §4.3）
   birth_country?: string;
   birth_region?: string;
+  birth_latitude?: number;
+  birth_longitude?: number;
   mbti?: string;
 
   notes?: string;

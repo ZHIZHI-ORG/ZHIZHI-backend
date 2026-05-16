@@ -50,6 +50,24 @@ export class UserRepository {
     return data as User;
   }
 
+  async findByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .in('id', ids)
+      .is('deleted_at', null);
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data as User[];
+  }
+
   /**
    * 创建新用户（注册后由 Supabase Auth 触发）
    * @param input - 用户数据
@@ -74,6 +92,17 @@ export class UserRepository {
     }
 
     return data as User;
+  }
+
+  async hardDeleteById(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.tableName)
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(`删除用户记录失败: ${error.message}`);
+    }
   }
 
   /**

@@ -19,7 +19,8 @@ import {
   BaziProfileListResponse,
 } from '../models/BaziProfile';
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { calculateFullChart } from '../utils/baziCalculator';
+import { calculateFullChart, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
+import { normalizeBirthTimeForBazi } from './trueSolarTimeService';
 
 // ============================================================
 // 创建档案
@@ -53,17 +54,31 @@ export async function createBaziProfile(
     }
   }
 
-  // 3. 计算完整命盘
+  // 3. 先按出生地经纬度校准真太阳时，再计算完整命盘
+  const normalizedBirthTime = normalizeBirthTimeForBazi({
+    year: input.birth_year,
+    month: input.birth_month,
+    day: input.birth_day,
+    hour: input.birth_hour ?? 12,
+    minute: input.birth_minute ?? 0,
+    timezone: input.birth_timezone || 'Asia/Shanghai',
+    longitude: input.birth_longitude,
+    latitude: input.birth_latitude,
+  });
+
   const chart = await calculateFullChart(
-    input.birth_year,
-    input.birth_month,
-    input.birth_day,
-    input.birth_hour ?? 12,    // 不知时辰默认午时
-    input.birth_minute ?? 0,
+    normalizedBirthTime.corrected.year,
+    normalizedBirthTime.corrected.month,
+    normalizedBirthTime.corrected.day,
+    normalizedBirthTime.corrected.hour,
+    normalizedBirthTime.corrected.minute,
     input.is_lunar ?? false,
-    1,   // gender 暂时统一用1（后续可从 input.gender 映射）
+    input.gender === 'female' ? 2 : 1,
     1,   // sect 默认流派1
   );
+  chart.calculationInfo = {
+    trueSolarTime: normalizedBirthTime,
+  };
 
   // 4. 写入数据库
   const profile = await baziProfileRepository.create(userId, {
@@ -82,6 +97,14 @@ export async function createBaziProfile(
     // 可选扩展字段（simple.md §4.3）
     birth_country: input.birth_country,
     birth_region: input.birth_region,
+    birth_latitude: input.birth_latitude,
+    birth_longitude: input.birth_longitude,
+    time_basis: normalizedBirthTime.timeBasis,
+    true_solar_time: formatNormalizedBirthTime(normalizedBirthTime.corrected),
+    true_solar_correction_minutes: normalizedBirthTime.correctionMinutes,
+    calculation_metadata: {
+      true_solar_time: normalizedBirthTime,
+    },
     mbti: input.mbti,
     notes: input.notes,
     // 基础四柱冗余列
@@ -246,6 +269,58 @@ function wuxingToContract(wuxing: any) {
   };
 }
 
+function weightedWuxingToContract(weighted: any) {
+  if (!weighted) return null;
+  const scores = weighted.scores || {};
+  return {
+    method_version: weighted.methodVersion || weighted.method_version || 'weighted_wuxing_v2_9',
+    scores: {
+      wood: scoreToContract(scores['木'] || scores.wood),
+      fire: scoreToContract(scores['火'] || scores.fire),
+      earth: scoreToContract(scores['土'] || scores.earth),
+      metal: scoreToContract(scores['金'] || scores.metal),
+      water: scoreToContract(scores['水'] || scores.water),
+    },
+    dominant: toEnglishElement(weighted.dominant),
+    weakest: toEnglishElement(weighted.weakest),
+    balance_index: weighted.balanceIndex ?? weighted.balance_index ?? 0,
+    day_master_strength: {
+      score: weighted.dayMasterStrength?.score ?? weighted.day_master_strength?.score ?? 0,
+      label: weighted.dayMasterStrength?.label ?? weighted.day_master_strength?.label ?? '',
+      support_score: weighted.dayMasterStrength?.supportScore ?? weighted.day_master_strength?.support_score ?? 0,
+      drain_score: weighted.dayMasterStrength?.drainScore ?? weighted.day_master_strength?.drain_score ?? 0,
+    },
+    major_factors: weighted.majorFactors || weighted.major_factors || [],
+    contributions: (weighted.contributions || []).map((item: any) => ({
+      element: toEnglishElement(item.element),
+      score: item.score,
+      source: item.source,
+      pillar: item.pillar,
+      stem: item.stem,
+      branch: item.branch,
+      note: item.note,
+    })),
+  };
+}
+
+function scoreToContract(score: any) {
+  return {
+    raw: score?.raw || 0,
+    percent: score?.percent || 0,
+  };
+}
+
+function toEnglishElement(element: string): string {
+  const map: Record<string, string> = {
+    '木': 'wood',
+    '火': 'fire',
+    '土': 'earth',
+    '金': 'metal',
+    '水': 'water',
+  };
+  return map[element] || element || '';
+}
+
 function getChart(profile: BaziProfile): any {
   return profile.full_chart || {
     dayMaster: profile.day_master,
@@ -319,6 +394,7 @@ function mapMonthlyLuck(item: any) {
 export async function getBaziChart(userId: string, profileId: string) {
   const profile = await getBaziProfileById(userId, profileId);
   const chart = getChart(profile);
+  const weightedWuxing = chart.weightedWuxing || chart.weighted_wuxing_analysis || calculateWeightedWuxingFromChart(chart);
 
   return {
     profile_id: profile.id,
@@ -332,6 +408,7 @@ export async function getBaziChart(userId: string, profileId: string) {
       toSnakePillar('hour', chart.time),
     ],
     wuxing_analysis: wuxingToContract(chart.wuxing || profile.wuxing_analysis),
+    weighted_wuxing_analysis: weightedWuxingToContract(weightedWuxing),
     calculation_info: {
       start_luck_age: chart.startAge || 0,
       start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
@@ -339,6 +416,11 @@ export async function getBaziChart(userId: string, profileId: string) {
       is_forward: chart.isForward ?? null,
       transition_rule: '',
       commanding_stem: chart.month?.stem || profile.bazi_month_stem || '',
+      time_basis: profile.time_basis || chart.calculationInfo?.trueSolarTime?.timeBasis || 'standard_time',
+      true_solar_time: profile.true_solar_time || null,
+      true_solar_correction_minutes: profile.true_solar_correction_minutes ?? chart.calculationInfo?.trueSolarTime?.correctionMinutes ?? null,
+      birth_longitude: profile.birth_longitude ?? chart.calculationInfo?.trueSolarTime?.longitude ?? null,
+      birth_latitude: profile.birth_latitude ?? chart.calculationInfo?.trueSolarTime?.latitude ?? null,
     },
   };
 }
@@ -467,4 +549,42 @@ function validateBaziInput(input: CreateBaziProfileInput): void {
   if (input.birth_minute !== undefined && (input.birth_minute < 0 || input.birth_minute > 59)) {
     throw new ValidationError('出生分钟须在 0 到 59 之间');
   }
+
+  if (input.birth_timezone && !isValidTimezone(input.birth_timezone)) {
+    throw new ValidationError('出生时区格式不正确，请使用 IANA 时区，例如 Asia/Shanghai');
+  }
+
+  validateCoordinate(input.birth_latitude, '出生地纬度', -90, 90);
+  validateCoordinate(input.birth_longitude, '出生地经度', -180, 180);
+
+  const hasClockTime = input.birth_hour !== undefined || input.birth_minute !== undefined;
+  if (hasClockTime && (input.birth_latitude === undefined || input.birth_longitude === undefined)) {
+    throw new ValidationError('出生地经纬度不能为空。真太阳时排盘需要前端提交出生地经纬度。');
+  }
+}
+
+function validateCoordinate(value: number | undefined, label: string, min: number, max: number): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new ValidationError(`${label}必须在 ${min} 到 ${max} 之间`);
+  }
+}
+
+function isValidTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatNormalizedBirthTime(time: { year: number; month: number; day: number; hour: number; minute: number }): string {
+  return `${time.year}-${pad2(time.month)}-${pad2(time.day)} ${pad2(time.hour)}:${pad2(time.minute)}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
 }

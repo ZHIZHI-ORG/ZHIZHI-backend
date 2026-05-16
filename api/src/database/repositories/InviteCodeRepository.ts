@@ -60,6 +60,27 @@ export class InviteCodeRepository {
   }
 
   /**
+   * 查询用户在某个邀请周期内的唯一邀请码。
+   *
+   * period_start 由业务层按香港时间自然周计算，数据库只负责精确匹配。
+   */
+  async findByCreatorAndPeriod(userId: string, periodStart: string): Promise<InviteCode | null> {
+    const { data, error } = await supabase
+      .from(this.codesTable)
+      .select('*')
+      .eq('created_by', userId)
+      .eq('period_start', periodStart)
+      .eq('is_active', true)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data as InviteCode;
+  }
+
+  /**
    * 将邀请码的已使用次数 +1
    * 在用户成功注册并关联邀请码后调用
    *
@@ -74,10 +95,24 @@ export class InviteCodeRepository {
     // （RPC 可以做原子性自增，避免并发问题）
     if (error) {
       console.warn('RPC 自增失败，降级为普通更新:', error.message);
-      await supabase
+      const { data: current, error: readError } = await supabase
         .from(this.codesTable)
-        .update({ used_count: supabase.rpc('used_count + 1') as any })
+        .select('used_count')
+        .eq('id', codeId)
+        .single();
+
+      if (readError || !current) {
+        throw new Error(`读取邀请码使用次数失败: ${readError?.message || 'not found'}`);
+      }
+
+      const { error: updateError } = await supabase
+        .from(this.codesTable)
+        .update({ used_count: (current.used_count || 0) + 1 })
         .eq('id', codeId);
+
+      if (updateError) {
+        throw new Error(`更新邀请码使用次数失败: ${updateError.message}`);
+      }
     }
   }
 
@@ -169,7 +204,7 @@ export class InviteCodeRepository {
    * @param userId - 码的创建者 user.id
    * @returns InviteCode
    */
-  async createForUser(userId: string): Promise<InviteCode> {
+  async createForUser(userId: string, periodStart: string, periodEnd: string): Promise<InviteCode> {
     // 生成唯一邀请码（带重试机制）
     let code = '';
     let attempts = 0;
@@ -187,6 +222,9 @@ export class InviteCodeRepository {
         created_by: userId,
         max_uses: 5,
         is_active: true,
+        expires_at: periodEnd,
+        period_start: periodStart,
+        period_end: periodEnd,
         note: '用户生成的好友邀请码，每周5次',
       })
       .select()

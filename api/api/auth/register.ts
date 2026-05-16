@@ -10,7 +10,7 @@
  *   email: string            // 邮箱
  *   password: string         // 密码（至少8位，含字母和数字）
  *   verificationCode: string // 邮件验证码（6位数字）
- *   invitationCode: string   // 邀请码（内测必填）
+ *   invitationCode?: string  // 邀请码（受 INVITE_CODE_REQUIRED 开关控制）
  *   displayName?: string     // 昵称（可选）
  * }
  *
@@ -18,6 +18,7 @@
  */
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { registerUser } from '../../src/services/authService';
+import { isInviteCodeRequired } from '../../src/config/auth';
 import { Response } from '../../src/utils/response';
 import { formatError } from '../../src/utils/errors';
 
@@ -37,12 +38,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } = req.body ?? {};
 
     // Handler 层做快速必填校验，具体格式校验由 service 层处理
-    if (!email || !password || !verificationCode || !invitationCode) {
+    const requiredFields = ['email', 'password', 'verificationCode'];
+    if (isInviteCodeRequired()) {
+      requiredFields.push('invitationCode');
+    }
+
+    const missingFields = requiredFields.filter((field) => !req.body?.[field]);
+    if (missingFields.length > 0) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'MISSING_FIELD',
-          message: '缺少必填字段：email、password、verificationCode、invitationCode',
+          message: `缺少必填字段：${missingFields.join('、')}`,
         },
       });
     }

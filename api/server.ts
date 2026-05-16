@@ -60,6 +60,11 @@ import historyHandler from './api/history/index';
 import historyByIdHandler from './api/history/[id]';
 import historyFavoriteHandler from './api/history/[id]/favorite';
 
+// 商业化模块
+import commerceStatusHandler from './api/commerce/status';
+import commerceTransactionSyncHandler from './api/commerce/transactions/sync';
+import commercePointsLedgerHandler from './api/commerce/points/ledger';
+import commercePointsConsumeHandler from './api/commerce/points/consume';
 
 // ─────────────────────────────────────────────────────────────
 // 路由表（精确路径匹配）
@@ -100,6 +105,12 @@ const routes: Record<string, any> = {
 
   // 历史档案模块
   '/api/history': historyHandler,
+
+  // 商业化模块
+  '/api/commerce/status': commerceStatusHandler,
+  '/api/commerce/transactions/sync': commerceTransactionSyncHandler,
+  '/api/commerce/points/ledger': commercePointsLedgerHandler,
+  '/api/commerce/points/consume': commercePointsConsumeHandler,
 };
 
 

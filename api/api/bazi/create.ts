@@ -32,6 +32,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       birth_timezone: req.body.birth_timezone,
       birth_country: req.body.birth_country,
       birth_region: req.body.birth_region,
+      birth_latitude: req.body.birth_latitude,
+      birth_longitude: req.body.birth_longitude,
       mbti: req.body.mbti,
       notes: req.body.notes,
     });
