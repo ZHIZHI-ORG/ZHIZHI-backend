@@ -136,6 +136,12 @@ async function main(): Promise<void> {
   });
 
   const chart1995 = await calculateFullChart(1995, 11, 5, 22, 30, false, 1, 1);
+  assert.equal(chart1995.year.lifecycle, '病', '1995 年柱星运应按日主落支计算');
+  assert.equal(chart1995.year.selfSitting, '死', '1995 年柱自坐应按本柱天干坐地支计算');
+  assert.equal(chart1995.month.lifecycle, '衰', '1995 月柱星运应按日主落支计算');
+  assert.equal(chart1995.month.selfSitting, '墓', '1995 月柱自坐应按本柱天干坐地支计算');
+  assert.equal(chart1995.day.selfSitting, '死', '1995 日柱自坐应按本柱天干坐地支计算');
+  assert.equal(chart1995.time.selfSitting, '胎', '1995 时柱自坐应按本柱天干坐地支计算');
   assertIncludesAll(chart1995.year.shenSha, ['国印贵人', '太极贵人', '文昌贵人', '亡神'], '1995 年柱');
   assertIncludesAll(chart1995.month.shenSha, ['红艳', '寡宿', '天德', '月德', '金舆', '文星贵人'], '1995 月柱');
   assertIncludesAll(chart1995.day.shenSha, ['太极贵人', '桃花'], '1995 日柱');

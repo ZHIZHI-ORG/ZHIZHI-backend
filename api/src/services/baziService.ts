@@ -19,7 +19,7 @@ import {
   BaziProfileListResponse,
 } from '../models/BaziProfile';
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { buildDailyLuckData, calculateFullChart, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
+import { buildDailyLuckData, calculateFullChart, calculateSelfSitting, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
 import {
   buildMingliFactPanel,
   buildNatalMingliInteractions,
@@ -257,6 +257,7 @@ function toSnakePillar(position: string, pillar: any) {
       element: item.element,
     })),
     lifecycle: pillar?.lifecycle || '',
+    self_sitting: pillar?.selfSitting || pillar?.self_sitting || calculateSelfSitting(pillar?.stem || '', pillar?.branch || ''),
     void_info: pillar?.voidInfo || '',
     na_yin: pillar?.naYin || '',
     shen_sha: pillar?.shenSha || [],
