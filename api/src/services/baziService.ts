@@ -413,6 +413,8 @@ function mapMajorCycle(cycle: any, index: number) {
     branch: cycle.branch,
     gan_zhi: cycle.ganZhi,
     ten_god: cycle.tenGod,
+    xun: cycle.xun || '',
+    xun_kong: cycle.xunKong || '',
     label: cycle.ganZhi === '童限' ? '童限' : '大运',
   };
 }
@@ -494,7 +496,7 @@ export async function getBaziChart(userId: string, profileId: string) {
       start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
       start_luck_date: chart.startDate || null,
       is_forward: chart.isForward ?? null,
-      transition_rule: '',
+      transition_rule: chart.isForward === true ? '顺行' : chart.isForward === false ? '逆行' : '',
       commanding_stem: chart.month?.stem || profile.bazi_month_stem || '',
       time_basis: profile.time_basis || chart.calculationInfo?.trueSolarTime?.timeBasis || 'standard_time',
       true_solar_time: profile.true_solar_time || null,
