@@ -19,7 +19,13 @@ import {
   BaziProfileListResponse,
 } from '../models/BaziProfile';
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { calculateFullChart, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
+import { buildDailyLuckData, calculateFullChart, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
+import {
+  buildMingliFactPanel,
+  buildNatalMingliInteractions,
+  buildTimingMingliInteractions,
+  MingliInteraction,
+} from '../utils/mingliInteractionEngine';
 import { normalizeBirthTimeForBazi } from './trueSolarTimeService';
 
 // ============================================================
@@ -303,6 +309,56 @@ function weightedWuxingToContract(weighted: any) {
   };
 }
 
+function mingliInteractionToContract(item: MingliInteraction) {
+  return {
+    id: item.id,
+    scope: item.scope,
+    relation: item.relation,
+    relation_name: item.relationName,
+    fact_label: item.factLabel,
+    short_label: item.shortLabel,
+    display_group: item.displayGroup,
+    aliases: item.aliases,
+    participants: item.participants.map(mingliParticipantToContract),
+    source: item.source ? mingliParticipantToContract(item.source) : null,
+    targets: item.targets.map(mingliParticipantToContract),
+    transform_element: item.transformElement || null,
+    center_branch: item.centerBranch || null,
+    activated_palaces: item.activatedPalaces,
+    domain_candidates: item.domainCandidates,
+    intensity: item.intensity,
+    time_horizon: item.timeHorizon,
+    evidence: item.evidence,
+    adjacent: item.adjacent,
+    full_match: item.fullMatch,
+    missing_branch: item.missingBranch || null,
+    seen_stem: item.seenStem || null,
+    compared_against: item.comparedAgainst,
+    rule_version: item.ruleVersion,
+  };
+}
+
+function mingliParticipantToContract(participant: MingliInteraction['participants'][number]) {
+  return {
+    type: participant.type,
+    pillar: participant.pillar || null,
+    label: participant.label,
+    stem: participant.stem || '',
+    branch: participant.branch || '',
+    gan_zhi: participant.ganZhi || '',
+    ten_gods: participant.tenGods || [],
+  };
+}
+
+function mingliFactPanelToContract(panel: ReturnType<typeof buildMingliFactPanel>) {
+  return {
+    heavenly_stem_luck: panel.heavenlyStemLuck,
+    earthly_branch_luck: panel.earthlyBranchLuck,
+    heavenly_stem_natal: panel.heavenlyStemNatal,
+    earthly_branch_natal: panel.earthlyBranchNatal,
+  };
+}
+
 function scoreToContract(score: any) {
   return {
     raw: score?.raw || 0,
@@ -381,6 +437,9 @@ function mapMonthlyLuck(item: any) {
     id: `${item.month}-${item.ganZhi}`,
     month: item.month,
     month_in_chinese: item.monthInChinese,
+    solar_term: item.solarTerm || null,
+    start_date: item.startDate || null,
+    end_date: item.endDate || null,
     stem: item.stem,
     branch: item.branch,
     gan_zhi: item.ganZhi,
@@ -391,10 +450,26 @@ function mapMonthlyLuck(item: any) {
   };
 }
 
+function mapDailyLuck(item: any) {
+  return {
+    id: `${item.date}-${item.ganZhi}`,
+    date: item.date,
+    lunar_day: item.lunarDay,
+    stem: item.stem,
+    branch: item.branch,
+    gan_zhi: item.ganZhi,
+    ten_god_top: item.tenGodTop,
+    ten_god_bottom: item.tenGodBottom,
+    xun: item.xun,
+    xun_kong: item.xunKong,
+  };
+}
+
 export async function getBaziChart(userId: string, profileId: string) {
   const profile = await getBaziProfileById(userId, profileId);
   const chart = getChart(profile);
   const weightedWuxing = chart.weightedWuxing || chart.weighted_wuxing_analysis || calculateWeightedWuxingFromChart(chart);
+  const natalInteractions = buildNatalMingliInteractions(chart);
 
   return {
     profile_id: profile.id,
@@ -409,6 +484,11 @@ export async function getBaziChart(userId: string, profileId: string) {
     ],
     wuxing_analysis: wuxingToContract(chart.wuxing || profile.wuxing_analysis),
     weighted_wuxing_analysis: weightedWuxingToContract(weightedWuxing),
+    mingli_facts: {
+      rule_version: 'mingli_interactions_v1',
+      fact_panel: mingliFactPanelToContract(buildMingliFactPanel(natalInteractions)),
+      natal_interactions: natalInteractions.map(mingliInteractionToContract),
+    },
     calculation_info: {
       start_luck_age: chart.startAge || 0,
       start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
@@ -430,26 +510,67 @@ export async function getBaziLuckTimeline(
   profileId: string,
   query: { year?: number; month?: number; day?: string },
 ) {
+  if (query.day !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(query.day)) {
+    throw new ValidationError('day 必须是 YYYY-MM-DD 格式');
+  }
   const profile = await getBaziProfileById(userId, profileId);
   const chart = getChart(profile);
-  const year = query.year || new Date().getFullYear();
+  const selectedDay = query.day || formatDateForLuck(new Date());
+  const year = query.year || Number(selectedDay.slice(0, 4));
   const majorCycles = (chart.majorCycles || []) as any[];
   const activeCycle = majorCycles.find((cycle) => year >= cycle.startYear && year <= cycle.endYear)
     || majorCycles[0];
   const annualLucks = (activeCycle?.annualLuck || []).map(mapAnnualLuck);
   const selectedAnnual = (activeCycle?.annualLuck || []).find((item: any) => item.year === year)
     || activeCycle?.annualLuck?.[0];
+  const selectedMonth = selectMonthlyLuck(selectedAnnual?.monthlyLuck || [], query.month, selectedDay);
+  const selectedDaily = buildDailyLuckData(chart.dayMaster || profile.day_master || '', selectedDay);
+  const timingInteractions = buildTimingMingliInteractions(chart, {
+    dayun: activeCycle,
+    liunian: selectedAnnual,
+    liuyue: selectedMonth,
+    liuri: selectedDaily,
+  });
+  const natalInteractions = buildNatalMingliInteractions(chart);
 
   return {
     profile_id: profile.id,
     selected_year: year,
-    selected_month: query.month || null,
-    selected_day: query.day || null,
+    selected_month: selectedMonth?.month || query.month || null,
+    selected_day: selectedDay,
+    active_luck_context: {
+      dayun: activeCycle ? mapMajorCycle(activeCycle, majorCycles.indexOf(activeCycle)) : null,
+      liunian: selectedAnnual ? mapAnnualLuck(selectedAnnual) : null,
+      liuyue: selectedMonth ? mapMonthlyLuck(selectedMonth) : null,
+      liuri: selectedDaily ? mapDailyLuck(selectedDaily) : null,
+    },
     major_cycles: majorCycles.map(mapMajorCycle),
     annual_lucks: annualLucks,
     monthly_lucks: (selectedAnnual?.monthlyLuck || []).map(mapMonthlyLuck),
-    daily_lucks: [],
+    daily_lucks: selectedDaily ? [mapDailyLuck(selectedDaily)] : [],
+    fact_panel: mingliFactPanelToContract(buildMingliFactPanel([...timingInteractions, ...natalInteractions])),
+    timing_interactions: timingInteractions.map(mingliInteractionToContract),
   };
+}
+
+function selectMonthlyLuck(monthlyLuck: any[], month: number | undefined, day: string) {
+  if (month) {
+    return monthlyLuck.find((item: any) => item.month === month) || null;
+  }
+  const byDate = monthlyLuck.find((item: any) => {
+    if (!item.startDate || !item.endDate) return false;
+    return day >= item.startDate && day < item.endDate;
+  });
+  if (byDate) return byDate;
+  const gregorianMonth = Number(day.slice(5, 7));
+  return monthlyLuck.find((item: any) => item.month === gregorianMonth) || null;
+}
+
+function formatDateForLuck(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export async function getBaziLuckAnalysis(

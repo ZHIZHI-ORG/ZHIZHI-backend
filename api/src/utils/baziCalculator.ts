@@ -75,10 +75,26 @@ export interface AnnualLuckData {
 export interface MonthlyLuckData {
   month: number;          // 月份序号（1-12）
   monthInChinese: string; // 中文月名（如"正"）
+  solarTerm?: string;     // 流月起点节气
+  startDate?: string;     // 流月起始公历日期（YYYY-MM-DD）
+  endDate?: string;       // 下一流月起始公历日期（YYYY-MM-DD）
   stem: string;           // 天干
   branch: string;         // 地支
   ganZhi: string;         // 干支（如"庚寅"）
   tenGod: string;         // 天干十神
+  tenGodBottom: string;   // 地支主气十神
+  xun: string;            // 旬
+  xunKong: string;        // 旬空
+}
+
+/** 流日数据 */
+export interface DailyLuckData {
+  date: string;           // 公历日期（YYYY-MM-DD）
+  lunarDay: string;       // 农历日名
+  stem: string;           // 天干
+  branch: string;         // 地支
+  ganZhi: string;         // 干支
+  tenGodTop: string;      // 天干十神
   tenGodBottom: string;   // 地支主气十神
   xun: string;            // 旬
   xunKong: string;        // 旬空
@@ -160,7 +176,7 @@ export interface FullChartResult {
 // 五行映射
 // ============================================================
 
-const GAN_WUXING: Record<string, string> = {
+export const GAN_WUXING: Record<string, string> = {
   '甲': '木', '乙': '木',
   '丙': '火', '丁': '火',
   '戊': '土', '己': '土',
@@ -168,7 +184,7 @@ const GAN_WUXING: Record<string, string> = {
   '壬': '水', '癸': '水',
 };
 
-const ZHI_WUXING: Record<string, string> = {
+export const ZHI_WUXING: Record<string, string> = {
   '子': '水', '亥': '水',
   '寅': '木', '卯': '木',
   '巳': '火', '午': '火',
@@ -189,7 +205,7 @@ const WUXING_GENERATES: Record<string, string> = {
   '水': '木',
 };
 
-const WUXING_CONTROLS: Record<string, string> = {
+export const WUXING_CONTROLS: Record<string, string> = {
   '木': '土',
   '土': '水',
   '水': '火',
@@ -197,9 +213,9 @@ const WUXING_CONTROLS: Record<string, string> = {
   '金': '木',
 };
 
-const WUXING_ELEMENTS = ['木', '火', '土', '金', '水'] as const;
-type WuxingElement = typeof WUXING_ELEMENTS[number];
-type PillarPosition = 'year' | 'month' | 'day' | 'time';
+export const WUXING_ELEMENTS = ['木', '火', '土', '金', '水'] as const;
+export type WuxingElement = typeof WUXING_ELEMENTS[number];
+export type PillarPosition = 'year' | 'month' | 'day' | 'time';
 
 const STEM_POSITION_WEIGHTS: Record<PillarPosition, number> = {
   year: 0.6,
@@ -250,7 +266,7 @@ const RESTRAINING_DRAIN_RATIO = 0.20;
 const DIRECT_STEM_CONTROL_DRAIN_RATIO = 0.25;
 const SAME_ELEMENT_ROOT_RATIOS = [0.85, 0.25, 0.15, 0.10];
 
-const ZHI_HIDDEN_STEMS: Record<string, string[]> = {
+export const ZHI_HIDDEN_STEMS: Record<string, string[]> = {
   '子': ['癸'],
   '丑': ['己', '癸', '辛'],
   '寅': ['甲', '丙', '戊'],
@@ -280,19 +296,19 @@ const MONTH_SEASON_STAGE: Record<string, Record<WuxingElement, number>> = {
   '丑': { 木: 0.95, 火: 0.85, 土: 1.18, 金: 1.0, 水: 1.05 },
 };
 
-const BRANCH_CLASHES: Array<[string, string]> = [
+export const BRANCH_CLASHES: Array<[string, string]> = [
   ['子', '午'], ['丑', '未'], ['寅', '申'], ['卯', '酉'], ['辰', '戌'], ['巳', '亥'],
 ];
 
-const BRANCH_HARMS: Array<[string, string]> = [
+export const BRANCH_HARMS: Array<[string, string]> = [
   ['子', '未'], ['丑', '午'], ['寅', '巳'], ['卯', '辰'], ['申', '亥'], ['酉', '戌'],
 ];
 
-const BRANCH_PUNISHMENTS: Array<[string, string]> = [
+export const BRANCH_PUNISHMENTS: Array<[string, string]> = [
   ['子', '卯'], ['寅', '巳'], ['巳', '申'], ['丑', '戌'], ['戌', '未'], ['丑', '未'],
 ];
 
-const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: WuxingElement }> = [
+export const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: WuxingElement }> = [
   { branches: ['子', '丑'], element: '土' },
   { branches: ['寅', '亥'], element: '木' },
   { branches: ['卯', '戌'], element: '火' },
@@ -301,21 +317,21 @@ const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: Wuxi
   { branches: ['午', '未'], element: '土' },
 ];
 
-const BRANCH_THREE_HARMONIES: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = [
+export const BRANCH_THREE_HARMONIES: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = [
   { branches: ['申', '子', '辰'], element: '水', center: '子' },
   { branches: ['亥', '卯', '未'], element: '木', center: '卯' },
   { branches: ['寅', '午', '戌'], element: '火', center: '午' },
   { branches: ['巳', '酉', '丑'], element: '金', center: '酉' },
 ];
 
-const BRANCH_THREE_MEETINGS: Array<{ branches: [string, string, string]; element: WuxingElement }> = [
+export const BRANCH_THREE_MEETINGS: Array<{ branches: [string, string, string]; element: WuxingElement }> = [
   { branches: ['寅', '卯', '辰'], element: '木' },
   { branches: ['巳', '午', '未'], element: '火' },
   { branches: ['申', '酉', '戌'], element: '金' },
   { branches: ['亥', '子', '丑'], element: '水' },
 ];
 
-const STEM_COMBINATIONS: Array<{ stems: [string, string]; element: WuxingElement }> = [
+export const STEM_COMBINATIONS: Array<{ stems: [string, string]; element: WuxingElement }> = [
   { stems: ['甲', '己'], element: '土' },
   { stems: ['乙', '庚'], element: '金' },
   { stems: ['丙', '辛'], element: '水' },
@@ -936,13 +952,25 @@ function buildLiuNianData(dayGan: string, liuNian: any): AnnualLuckData {
   };
 }
 
+const LIUYUE_START_TERMS = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', 'XIAO_HAN'];
+const LIUYUE_START_TERM_LABELS = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒'];
+
 function buildLiuYueList(dayGan: string, liuNian: any): MonthlyLuckData[] {
   const liuYue = liuNian.getLiuYue?.() || [];
+  const liuNianYear = Number(liuNian.getYear?.());
+  const jieQiTable = Number.isFinite(liuNianYear)
+    ? Solar.fromYmdHms(liuNianYear, 7, 1, 12, 0, 0).getLunar().getJieQiTable()
+    : {};
   return liuYue.map((ly: any, i: number) => {
     const gz: string = ly.getGanZhi?.() || '';
+    const startTerm = LIUYUE_START_TERMS[i];
+    const endTerm = LIUYUE_START_TERMS[(i + 1) % LIUYUE_START_TERMS.length];
     return {
       month: i + 1,
       monthInChinese: ly.getMonthInChinese?.() || '',
+      solarTerm: LIUYUE_START_TERM_LABELS[i],
+      startDate: jieQiTable[startTerm]?.toYmd?.(),
+      endDate: jieQiTable[endTerm]?.toYmd?.(),
       stem: gz[0] || '',
       branch: gz[1] || '',
       ganZhi: gz,
@@ -952,6 +980,28 @@ function buildLiuYueList(dayGan: string, liuNian: any): MonthlyLuckData[] {
       xunKong: ly.getXunKong?.() || '',
     };
   });
+}
+
+export function buildDailyLuckData(dayGan: string, day: string): DailyLuckData {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) {
+    throw new Error('day must be YYYY-MM-DD');
+  }
+  const [, year, month, date] = match;
+  const solar = Solar.fromYmdHms(Number(year), Number(month), Number(date), 12, 0, 0);
+  const lunar = solar.getLunar();
+  const ganZhi = lunar.getDayInGanZhi?.() || `${lunar.getDayGan?.() || ''}${lunar.getDayZhi?.() || ''}`;
+  return {
+    date: day,
+    lunarDay: lunar.getDayInChinese?.() || '',
+    stem: lunar.getDayGan?.() || ganZhi[0] || '',
+    branch: lunar.getDayZhi?.() || ganZhi[1] || '',
+    ganZhi,
+    tenGodTop: getTenGod(dayGan, lunar.getDayGan?.() || ganZhi[0] || ''),
+    tenGodBottom: getBranchTenGod(dayGan, lunar.getDayZhi?.() || ganZhi[1] || ''),
+    xun: lunar.getDayXun?.() || '',
+    xunKong: lunar.getDayXunKong?.() || '',
+  };
 }
 
 /**
