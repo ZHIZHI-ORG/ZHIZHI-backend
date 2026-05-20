@@ -119,11 +119,39 @@ export interface CreateBaziProfileInput {
  * 更新八字档案输入
  */
 export interface UpdateBaziProfileInput {
+  is_owner?: boolean;
   name?: string;
   relation_to_owner?: string;
   gender?: Gender;
+  birth_year?: number;
+  birth_month?: number;
+  birth_day?: number;
+  birth_hour?: number;
+  birth_minute?: number;
+  is_lunar?: boolean;
+  birth_timezone?: string;
+  birth_country?: string;
+  birth_region?: string;
+  birth_latitude?: number;
+  birth_longitude?: number;
+  time_basis?: 'standard_time' | 'true_solar_time';
+  true_solar_time?: string;
+  true_solar_correction_minutes?: number;
+  calculation_metadata?: any;
+  mbti?: string;
+  bazi_year_stem?: string;
+  bazi_year_branch?: string;
+  bazi_month_stem?: string;
+  bazi_month_branch?: string;
+  bazi_day_stem?: string;
+  bazi_day_branch?: string;
+  bazi_hour_stem?: string;
+  bazi_hour_branch?: string;
+  wuxing_analysis?: WuxingAnalysis;
+  full_chart?: any;
+  day_master?: string;
+  day_master_element?: string;
   notes?: string;
-  // 注意：生辰信息一般不允许修改，如需修改应删除重建
 }
 
 /**

@@ -7,6 +7,34 @@ const {
 
 async function main(): Promise<void> {
   const chart1995 = await calculateFullChart(1995, 11, 5, 22, 30, false, 1, 1);
+  assert.deepEqual(
+    chart1995.majorCycles[1].hiddenStems,
+    [{ stem: '辛', tenGod: '劫财', element: '金' }],
+    '大运应包含地支藏干，供前端点击后展示'
+  );
+  assert.equal(chart1995.majorCycles[1].lifecycle, '帝旺', '大运星运应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].selfSitting, '绝', '大运自坐应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].naYin, '泉中水', '大运纳音应随接口返回给前端');
+  assert.deepEqual(
+    chart1995.majorCycles[1].annualLuck[0].hiddenStems,
+    [{ stem: '辛', tenGod: '劫财', element: '金' }],
+    '流年应包含地支藏干，主星只展示天干十神'
+  );
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].lifecycle, '帝旺', '流年星运应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].selfSitting, '绝', '流年自坐应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].naYin, '泉中水', '流年纳音应随接口返回给前端');
+  assert.deepEqual(
+    chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].hiddenStems,
+    [
+      { stem: '甲', tenGod: '偏财', element: '木' },
+      { stem: '丙', tenGod: '七杀', element: '火' },
+      { stem: '戊', tenGod: '偏印', element: '土' },
+    ],
+    '流月应包含地支藏干，供前端藏干行展示'
+  );
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].lifecycle, '绝', '流月星运应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].selfSitting, '长生', '流月自坐应随接口返回给前端');
+  assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].naYin, '城头土', '流月纳音应随接口返回给前端');
 
   assert.deepEqual(chart1995.wuxing, {
     金: 1,

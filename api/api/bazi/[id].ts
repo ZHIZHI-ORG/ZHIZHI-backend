@@ -38,6 +38,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         name: req.body.name,
         relation_to_owner: req.body.relation_to_owner,
         gender: req.body.gender,
+        birth_year: req.body.birth_year,
+        birth_month: req.body.birth_month,
+        birth_day: req.body.birth_day,
+        birth_hour: req.body.birth_hour,
+        birth_minute: req.body.birth_minute,
+        is_lunar: req.body.is_lunar,
+        birth_timezone: req.body.birth_timezone,
+        birth_country: req.body.birth_country,
+        birth_region: req.body.birth_region,
+        birth_latitude: req.body.birth_latitude,
+        birth_longitude: req.body.birth_longitude,
+        mbti: req.body.mbti,
         notes: req.body.notes,
       });
       const response = Response.ok(updatedProfile, '档案更新成功');

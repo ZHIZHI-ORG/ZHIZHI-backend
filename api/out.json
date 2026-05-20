@@ -1,0 +1,426 @@
+{
+  "methodVersion": "weighted_wuxing_v2_9",
+  "scores": {
+    "木": {
+      "raw": 6.39,
+      "percent": 51.11
+    },
+    "火": {
+      "raw": 2.87,
+      "percent": 22.93
+    },
+    "土": {
+      "raw": 2.17,
+      "percent": 17.36
+    },
+    "金": {
+      "raw": 0.57,
+      "percent": 4.54
+    },
+    "水": {
+      "raw": 0.51,
+      "percent": 4.05
+    }
+  },
+  "dominant": "木",
+  "weakest": "水",
+  "balanceIndex": 0.57,
+  "dayMasterStrength": {
+    "score": -1,
+    "label": "balanced",
+    "supportScore": 5.43,
+    "drainScore": 5.59
+  },
+  "majorFactors": [
+    "月令寅木主导季节气势",
+    "木为当前加权最强五行",
+    "水为当前加权最弱五行",
+    "日主乙木强弱为balanced",
+    "天干甲丙乙己透出参与显性能量"
+  ],
+  "contributions": [
+    {
+      "element": "木",
+      "score": 1.94,
+      "source": "month_hidden_main",
+      "pillar": "month",
+      "stem": "甲",
+      "branch": "寅",
+      "note": "月柱寅藏main甲木"
+    },
+    {
+      "element": "火",
+      "score": 1.65,
+      "source": "month_stem",
+      "pillar": "month",
+      "stem": "丙",
+      "note": "月柱天干丙火显性能量"
+    },
+    {
+      "element": "木",
+      "score": 1.46,
+      "source": "day_stem",
+      "pillar": "day",
+      "stem": "乙",
+      "note": "日柱天干乙木显性能量"
+    },
+    {
+      "element": "木",
+      "score": 1.22,
+      "source": "time_hidden_main",
+      "pillar": "time",
+      "stem": "乙",
+      "branch": "卯",
+      "note": "时柱卯藏main乙木"
+    },
+    {
+      "element": "土",
+      "score": 0.8,
+      "source": "time_stem",
+      "pillar": "time",
+      "stem": "己",
+      "note": "时柱天干己土显性能量"
+    },
+    {
+      "element": "火",
+      "score": 0.78,
+      "source": "month_hidden_middle",
+      "pillar": "month",
+      "stem": "丙",
+      "branch": "寅",
+      "note": "月柱寅藏middle丙火"
+    },
+    {
+      "element": "木",
+      "score": 0.73,
+      "source": "year_stem",
+      "pillar": "year",
+      "stem": "甲",
+      "note": "年柱天干甲木显性能量"
+    },
+    {
+      "element": "土",
+      "score": 0.72,
+      "source": "day_hidden_main",
+      "pillar": "day",
+      "stem": "己",
+      "branch": "丑",
+      "note": "日柱丑藏main己土"
+    },
+    {
+      "element": "木",
+      "score": 0.59,
+      "source": "rooted_penetration",
+      "pillar": "month",
+      "stem": "甲",
+      "branch": "寅",
+      "note": "甲木在月柱寅有根且透出"
+    },
+    {
+      "element": "木",
+      "score": 0.49,
+      "source": "elemental_rooted_penetration",
+      "pillar": "month",
+      "stem": "乙",
+      "branch": "寅",
+      "note": "乙木得月柱寅藏甲木同气通根"
+    },
+    {
+      "element": "土",
+      "score": 0.45,
+      "source": "month_hidden_residual",
+      "pillar": "month",
+      "stem": "戊",
+      "branch": "寅",
+      "note": "月柱寅藏residual戊土"
+    },
+    {
+      "element": "水",
+      "score": 0.38,
+      "source": "day_hidden_middle",
+      "pillar": "day",
+      "stem": "癸",
+      "branch": "丑",
+      "note": "日柱丑藏middle癸水"
+    },
+    {
+      "element": "金",
+      "score": 0.32,
+      "source": "year_hidden_main",
+      "pillar": "year",
+      "stem": "庚",
+      "branch": "申",
+      "note": "年柱申藏main庚金"
+    },
+    {
+      "element": "火",
+      "score": 0.3,
+      "source": "rooted_penetration",
+      "pillar": "month",
+      "stem": "丙",
+      "branch": "寅",
+      "note": "丙火在月柱寅有根且透出"
+    },
+    {
+      "element": "火",
+      "score": 0.3,
+      "source": "generating_flow",
+      "note": "木生火，原局气势流通"
+    },
+    {
+      "element": "木",
+      "score": 0.27,
+      "source": "rooted_penetration",
+      "pillar": "time",
+      "stem": "乙",
+      "branch": "卯",
+      "note": "乙木在时柱卯有根且透出"
+    },
+    {
+      "element": "木",
+      "score": -0.23,
+      "source": "directional_branch_clash",
+      "pillar": "month",
+      "stem": "甲",
+      "branch": "寅",
+      "note": "寅申六冲按五行强弱方向削弱寅藏干"
+    },
+    {
+      "element": "金",
+      "score": 0.2,
+      "source": "day_hidden_residual",
+      "pillar": "day",
+      "stem": "辛",
+      "branch": "丑",
+      "note": "日柱丑藏residual辛金"
+    },
+    {
+      "element": "土",
+      "score": 0.19,
+      "source": "rooted_penetration",
+      "pillar": "day",
+      "stem": "己",
+      "branch": "丑",
+      "note": "己土在日柱丑有根且透出"
+    },
+    {
+      "element": "水",
+      "score": 0.15,
+      "source": "year_hidden_middle",
+      "pillar": "year",
+      "stem": "壬",
+      "branch": "申",
+      "note": "年柱申藏middle壬水"
+    },
+    {
+      "element": "木",
+      "score": 0.12,
+      "source": "elemental_rooted_penetration",
+      "pillar": "time",
+      "stem": "甲",
+      "branch": "卯",
+      "note": "甲木得时柱卯藏乙木同气通根"
+    },
+    {
+      "element": "木",
+      "score": -0.12,
+      "source": "draining_flow",
+      "note": "木生火而自身轻微泄气"
+    },
+    {
+      "element": "土",
+      "score": -0.12,
+      "source": "controlling_flow",
+      "note": "木克土，强者对被克五行形成压制"
+    },
+    {
+      "element": "土",
+      "score": 0.12,
+      "source": "generating_flow",
+      "note": "火生土，原局气势流通"
+    },
+    {
+      "element": "金",
+      "score": 0.1,
+      "source": "generating_flow",
+      "note": "土生金，原局气势流通"
+    },
+    {
+      "element": "火",
+      "score": -0.09,
+      "source": "directional_branch_clash",
+      "pillar": "month",
+      "stem": "丙",
+      "branch": "寅",
+      "note": "寅申六冲按五行强弱方向削弱寅藏干"
+    },
+    {
+      "element": "土",
+      "score": 0.07,
+      "source": "year_hidden_residual",
+      "pillar": "year",
+      "stem": "戊",
+      "branch": "申",
+      "note": "年柱申藏residual戊土"
+    },
+    {
+      "element": "土",
+      "score": 0.07,
+      "source": "elemental_rooted_penetration",
+      "pillar": "month",
+      "stem": "己",
+      "branch": "寅",
+      "note": "己土得月柱寅藏戊土同气通根"
+    },
+    {
+      "element": "土",
+      "score": 0.06,
+      "source": "stem_combination_bind",
+      "stem": "甲己",
+      "note": "甲己天干合有合未化"
+    },
+    {
+      "element": "土",
+      "score": -0.05,
+      "source": "direct_stem_control",
+      "pillar": "time",
+      "stem": "乙己",
+      "note": "日干乙木贴近克时干己土"
+    },
+    {
+      "element": "土",
+      "score": -0.05,
+      "source": "directional_branch_clash",
+      "pillar": "month",
+      "stem": "戊",
+      "branch": "寅",
+      "note": "寅申六冲按五行强弱方向削弱寅藏干"
+    },
+    {
+      "element": "火",
+      "score": -0.05,
+      "source": "draining_flow",
+      "note": "火生土而自身轻微泄气"
+    },
+    {
+      "element": "木",
+      "score": -0.04,
+      "source": "controlling_drain",
+      "note": "木克土，克伐过程自身轻微耗气"
+    },
+    {
+      "element": "土",
+      "score": -0.04,
+      "source": "draining_flow",
+      "note": "土生金而自身轻微泄气"
+    },
+    {
+      "element": "金",
+      "score": -0.03,
+      "source": "directional_branch_clash",
+      "pillar": "year",
+      "stem": "庚",
+      "branch": "申",
+      "note": "寅申六冲按五行强弱方向削弱申藏干"
+    },
+    {
+      "element": "土",
+      "score": -0.03,
+      "source": "restraining_flow",
+      "note": "木克土，五行循环形成基础约束"
+    },
+    {
+      "element": "金",
+      "score": -0.03,
+      "source": "controlling_flow",
+      "note": "火克金，强者对被克五行形成压制"
+    },
+    {
+      "element": "木",
+      "score": -0.02,
+      "source": "stem_combination_bind_drain",
+      "pillar": "year",
+      "stem": "甲",
+      "note": "甲己天干合而未化，甲木原气轻微牵绊"
+    },
+    {
+      "element": "土",
+      "score": -0.02,
+      "source": "stem_combination_bind_drain",
+      "pillar": "time",
+      "stem": "己",
+      "note": "甲己天干合而未化，己土原气轻微牵绊"
+    },
+    {
+      "element": "土",
+      "score": 0.01,
+      "source": "elemental_rooted_penetration",
+      "pillar": "year",
+      "stem": "己",
+      "branch": "申",
+      "note": "己土得年柱申藏戊土同气通根"
+    },
+    {
+      "element": "木",
+      "score": -0.01,
+      "source": "direct_stem_control_drain",
+      "pillar": "day",
+      "stem": "乙己",
+      "note": "乙木克己土，贴身克伐自身耗气"
+    },
+    {
+      "element": "水",
+      "score": -0.01,
+      "source": "directional_branch_clash",
+      "pillar": "year",
+      "stem": "壬",
+      "branch": "申",
+      "note": "寅申六冲按五行强弱方向削弱申藏干"
+    },
+    {
+      "element": "土",
+      "score": -0.01,
+      "source": "directional_branch_clash",
+      "pillar": "year",
+      "stem": "戊",
+      "branch": "申",
+      "note": "寅申六冲按五行强弱方向削弱申藏干"
+    },
+    {
+      "element": "木",
+      "score": -0.01,
+      "source": "restraining_drain",
+      "note": "木克土，基础制约自身轻微耗气"
+    },
+    {
+      "element": "金",
+      "score": -0.01,
+      "source": "restraining_flow",
+      "note": "火克金，五行循环形成基础约束"
+    },
+    {
+      "element": "火",
+      "score": -0.01,
+      "source": "controlling_drain",
+      "note": "火克金，克伐过程自身轻微耗气"
+    },
+    {
+      "element": "水",
+      "score": -0.01,
+      "source": "restraining_flow",
+      "note": "土克水，五行循环形成基础约束"
+    },
+    {
+      "element": "木",
+      "score": -0.01,
+      "source": "restraining_flow",
+      "note": "金克木，五行循环形成基础约束"
+    },
+    {
+      "element": "火",
+      "score": -0.01,
+      "source": "restraining_flow",
+      "note": "水克火，五行循环形成基础约束"
+    }
+  ]
+}

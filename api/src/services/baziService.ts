@@ -4,7 +4,7 @@
  * 职责：
  *   - 创建八字档案（调用计算器、写入数据库）
  *   - 查询档案列表 / 详情
- *   - 更新档案（仅允许改非核心字段）
+ *   - 更新档案（生日变化时重新排盘）
  *   - 删除档案（软删除）
  *
  * 计算器：baziCalculator.ts（基于 lunar-javascript + 自研神煞查表）
@@ -199,8 +199,8 @@ export async function getBaziProfileById(
 /**
  * 更新八字档案
  *
- * 根据 simple.md §4.2：只允许修改姓名、关系、备注
- * 生辰信息不可更改（影响命盘计算结果的一致性）
+ * 允许修改展示字段和生辰字段。生辰字段变化时必须重新计算完整命盘，
+ * 否则前端资料页和排盘/流年页会读取到互相矛盾的数据。
  *
  * @param userId    - 当前用户 ID
  * @param profileId - 档案 ID
@@ -213,9 +213,97 @@ export async function updateBaziProfile(
 ): Promise<BaziProfile> {
 
   // 权限校验（内部调用 findById）
-  await getBaziProfileById(userId, profileId);
+  const existing = await getBaziProfileById(userId, profileId);
+  const merged = mergeBaziUpdateInput(existing, input);
+  validateBaziInput(merged);
 
-  return await baziProfileRepository.update(profileId, input);
+  const normalizedBirthTime = normalizeBirthTimeForBazi({
+    year: merged.birth_year,
+    month: merged.birth_month,
+    day: merged.birth_day,
+    hour: merged.birth_hour ?? 12,
+    minute: merged.birth_minute ?? 0,
+    timezone: merged.birth_timezone || 'Asia/Shanghai',
+    longitude: merged.birth_longitude,
+    latitude: merged.birth_latitude,
+  });
+
+  const chart = await calculateFullChart(
+    normalizedBirthTime.corrected.year,
+    normalizedBirthTime.corrected.month,
+    normalizedBirthTime.corrected.day,
+    normalizedBirthTime.corrected.hour,
+    normalizedBirthTime.corrected.minute,
+    merged.is_lunar ?? false,
+    merged.gender === 'female' ? 2 : 1,
+    1,
+  );
+  chart.calculationInfo = {
+    trueSolarTime: normalizedBirthTime,
+  };
+
+  return await baziProfileRepository.update(profileId, {
+    is_owner: existing.is_owner,
+    name: merged.name,
+    relation_to_owner: merged.relation_to_owner,
+    gender: merged.gender,
+    birth_year: merged.birth_year,
+    birth_month: merged.birth_month,
+    birth_day: merged.birth_day,
+    birth_hour: merged.birth_hour,
+    birth_minute: merged.birth_minute,
+    is_lunar: merged.is_lunar,
+    birth_timezone: merged.birth_timezone,
+    birth_country: merged.birth_country,
+    birth_region: merged.birth_region,
+    birth_latitude: merged.birth_latitude,
+    birth_longitude: merged.birth_longitude,
+    time_basis: normalizedBirthTime.timeBasis,
+    true_solar_time: formatNormalizedBirthTime(normalizedBirthTime.corrected),
+    true_solar_correction_minutes: normalizedBirthTime.correctionMinutes,
+    calculation_metadata: {
+      true_solar_time: normalizedBirthTime,
+    },
+    mbti: merged.mbti,
+    notes: merged.notes,
+    bazi_year_stem: chart.year.stem,
+    bazi_year_branch: chart.year.branch,
+    bazi_month_stem: chart.month.stem,
+    bazi_month_branch: chart.month.branch,
+    bazi_day_stem: chart.day.stem,
+    bazi_day_branch: chart.day.branch,
+    bazi_hour_stem: chart.time.stem,
+    bazi_hour_branch: chart.time.branch,
+    wuxing_analysis: chart.wuxing,
+    full_chart: chart,
+    day_master: chart.dayMaster,
+    day_master_element: chart.dayMasterElement,
+  });
+}
+
+function mergeBaziUpdateInput(
+  existing: BaziProfile,
+  input: UpdateBaziProfileInput,
+): CreateBaziProfileInput {
+  return {
+    is_owner: existing.is_owner,
+    name: input.name ?? existing.name,
+    relation_to_owner: input.relation_to_owner ?? existing.relation_to_owner,
+    gender: input.gender ?? existing.gender,
+    birth_year: input.birth_year ?? existing.birth_year,
+    birth_month: input.birth_month ?? existing.birth_month,
+    birth_day: input.birth_day ?? existing.birth_day,
+    birth_hour: input.birth_hour ?? existing.birth_hour,
+    birth_minute: input.birth_minute ?? existing.birth_minute,
+    is_lunar: input.is_lunar ?? existing.is_lunar,
+    birth_timezone: input.birth_timezone ?? existing.birth_timezone,
+    birth_country: input.birth_country ?? existing.birth_country,
+    birth_region: input.birth_region ?? existing.birth_region,
+    birth_latitude: input.birth_latitude ?? existing.birth_latitude,
+    birth_longitude: input.birth_longitude ?? existing.birth_longitude,
+    mbti: input.mbti ?? existing.mbti,
+    notes: input.notes ?? existing.notes,
+  };
 }
 
 // ============================================================
@@ -414,9 +502,17 @@ function mapMajorCycle(cycle: any, index: number) {
     branch: cycle.branch,
     gan_zhi: cycle.ganZhi,
     ten_god: cycle.tenGod,
+    hidden_stems: (cycle.hiddenStems || []).map((item: any) => ({
+      stem: item.stem,
+      ten_god: item.tenGod,
+      element: item.element,
+    })),
+    lifecycle: cycle.lifecycle || '',
+    self_sitting: cycle.selfSitting || '',
+    na_yin: cycle.naYin || '',
     xun: cycle.xun || '',
     xun_kong: cycle.xunKong || '',
-    label: cycle.ganZhi === '童限' ? '童限' : '大运',
+    label: cycle.ganZhi === '童限' ? '童限' : null,
   };
 }
 
@@ -430,6 +526,14 @@ function mapAnnualLuck(item: any) {
     gan_zhi: item.ganZhi,
     ten_god_top: item.tenGodTop,
     ten_god_bottom: item.tenGodBottom,
+    hidden_stems: (item.hiddenStems || []).map((hidden: any) => ({
+      stem: hidden.stem,
+      ten_god: hidden.tenGod,
+      element: hidden.element,
+    })),
+    lifecycle: item.lifecycle || '',
+    self_sitting: item.selfSitting || '',
+    na_yin: item.naYin || '',
     xun: item.xun,
     xun_kong: item.xunKong,
   };
@@ -448,6 +552,14 @@ function mapMonthlyLuck(item: any) {
     gan_zhi: item.ganZhi,
     ten_god: item.tenGod,
     ten_god_bottom: item.tenGodBottom,
+    hidden_stems: (item.hiddenStems || []).map((hidden: any) => ({
+      stem: hidden.stem,
+      ten_god: hidden.tenGod,
+      element: hidden.element,
+    })),
+    lifecycle: item.lifecycle || '',
+    self_sitting: item.selfSitting || '',
+    na_yin: item.naYin || '',
     xun: item.xun,
     xun_kong: item.xunKong,
   };
@@ -463,6 +575,14 @@ function mapDailyLuck(item: any) {
     gan_zhi: item.ganZhi,
     ten_god_top: item.tenGodTop,
     ten_god_bottom: item.tenGodBottom,
+    hidden_stems: (item.hiddenStems || []).map((hidden: any) => ({
+      stem: hidden.stem,
+      ten_god: hidden.tenGod,
+      element: hidden.element,
+    })),
+    lifecycle: item.lifecycle || '',
+    self_sitting: item.selfSitting || '',
+    na_yin: item.naYin || '',
     xun: item.xun,
     xun_kong: item.xunKong,
   };

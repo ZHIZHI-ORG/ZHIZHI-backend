@@ -53,6 +53,10 @@ export interface MajorCycleData {
   branch: string;     // 地支（如"酉"）
   ganZhi: string;     // 干支（如"乙酉"）
   tenGod: string;     // 天干十神（如"伤"）
+  hiddenStems: HiddenStemData[]; // 大运地支藏干
+  lifecycle: string;  // 大运地支相对日主的十二长生
+  selfSitting: string;// 大运天干坐地支
+  naYin: string;      // 大运纳音
   xun: string;        // 旬
   xunKong: string;    // 旬空
   annualLuck: AnnualLuckData[]; // 该大运下的流年
@@ -67,6 +71,10 @@ export interface AnnualLuckData {
   ganZhi: string;         // 干支（如"丙午"）
   tenGodTop: string;      // 天干十神
   tenGodBottom: string;   // 地支主气十神
+  hiddenStems: HiddenStemData[]; // 流年地支藏干
+  lifecycle: string;      // 流年地支相对日主的十二长生
+  selfSitting: string;    // 流年天干坐地支
+  naYin: string;          // 流年纳音
   xun: string;            // 旬
   xunKong: string;        // 旬空
   monthlyLuck: MonthlyLuckData[]; // 该流年下的流月
@@ -84,6 +92,10 @@ export interface MonthlyLuckData {
   ganZhi: string;         // 干支（如"庚寅"）
   tenGod: string;         // 天干十神
   tenGodBottom: string;   // 地支主气十神
+  hiddenStems: HiddenStemData[]; // 流月地支藏干
+  lifecycle: string;      // 流月地支相对日主的十二长生
+  selfSitting: string;    // 流月天干坐地支
+  naYin: string;          // 流月纳音
   xun: string;            // 旬
   xunKong: string;        // 旬空
 }
@@ -97,6 +109,10 @@ export interface DailyLuckData {
   ganZhi: string;         // 干支
   tenGodTop: string;      // 天干十神
   tenGodBottom: string;   // 地支主气十神
+  hiddenStems: HiddenStemData[]; // 流日地支藏干
+  lifecycle: string;      // 流日地支相对日主的十二长生
+  selfSitting: string;    // 流日天干坐地支
+  naYin: string;          // 流日纳音
   xun: string;            // 旬
   xunKong: string;        // 旬空
 }
@@ -585,15 +601,21 @@ export async function calculateFullChart(
 
   const majorCycles: MajorCycleData[] = daYunList.slice(0, 10).map((dy: any) => {
     const gz = dy.getGanZhi() || '童限';
+    const stem = gz === '童限' ? '' : (gz[0] || '');
+    const branch = gz === '童限' ? '' : (gz[1] || '');
     return {
       startYear: dy.getStartYear(),
       endYear: dy.getEndYear(),
       age: dy.getStartAge(),
       endAge: dy.getEndAge(),
-      stem: gz === '童限' ? '' : (gz[0] || ''),
-      branch: gz === '童限' ? '' : (gz[1] || ''),
+      stem,
+      branch,
       ganZhi: gz,
-      tenGod: gz === '童限' ? '童限' : getTenGod(dayGan, gz[0]),
+      tenGod: gz === '童限' ? '童限' : getTenGod(dayGan, stem),
+      hiddenStems: branch ? buildHiddenStemData(dayGan, branch) : [],
+      lifecycle: branch ? calculateSelfSitting(dayGan, branch) : '',
+      selfSitting: stem && branch ? calculateSelfSitting(stem, branch) : '',
+      naYin: gz === '童限' ? '' : (LunarUtil.NAYIN?.[gz] || ''),
       xun: gz === '童限' ? '' : (dy.getXun?.() || ''),
       xunKong: gz === '童限' ? '' : (dy.getXunKong?.() || ''),
       annualLuck: buildLiuNianList(dayGan, dy),
@@ -687,6 +709,15 @@ function buildPillarData(
     naYin: naYin || '',
     shenSha,
   };
+}
+
+export function buildHiddenStemData(dayGan: string, branch: string): HiddenStemData[] {
+  const hiddenGan = LunarUtil.ZHI_HIDE_GAN?.[branch] || [];
+  return hiddenGan.map((stem: string) => ({
+    stem,
+    tenGod: getTenGodFull(dayGan, stem),
+    element: GAN_WUXING[stem] || '',
+  }));
 }
 
 const SELF_SITTING_TABLE: Record<string, Record<string, string>> = {
@@ -965,6 +996,10 @@ function buildLiuNianData(dayGan: string, liuNian: any): AnnualLuckData {
     ganZhi: gz,
     tenGodTop: getTenGod(dayGan, gz[0] || ''),
     tenGodBottom: getBranchTenGod(dayGan, gz[1] || ''),
+    hiddenStems: buildHiddenStemData(dayGan, gz[1] || ''),
+    lifecycle: calculateSelfSitting(dayGan, gz[1] || ''),
+    selfSitting: calculateSelfSitting(gz[0] || '', gz[1] || ''),
+    naYin: LunarUtil.NAYIN?.[gz] || '',
     xun: liuNian.getXun?.() || '',
     xunKong: liuNian.getXunKong?.() || '',
     monthlyLuck: buildLiuYueList(dayGan, liuNian),
@@ -995,6 +1030,10 @@ function buildLiuYueList(dayGan: string, liuNian: any): MonthlyLuckData[] {
       ganZhi: gz,
       tenGod: getTenGod(dayGan, gz[0] || ''),
       tenGodBottom: getBranchTenGod(dayGan, gz[1] || ''),
+      hiddenStems: buildHiddenStemData(dayGan, gz[1] || ''),
+      lifecycle: calculateSelfSitting(dayGan, gz[1] || ''),
+      selfSitting: calculateSelfSitting(gz[0] || '', gz[1] || ''),
+      naYin: LunarUtil.NAYIN?.[gz] || '',
       xun: ly.getXun?.() || '',
       xunKong: ly.getXunKong?.() || '',
     };
@@ -1018,6 +1057,10 @@ export function buildDailyLuckData(dayGan: string, day: string): DailyLuckData {
     ganZhi,
     tenGodTop: getTenGod(dayGan, lunar.getDayGan?.() || ganZhi[0] || ''),
     tenGodBottom: getBranchTenGod(dayGan, lunar.getDayZhi?.() || ganZhi[1] || ''),
+    hiddenStems: buildHiddenStemData(dayGan, lunar.getDayZhi?.() || ganZhi[1] || ''),
+    lifecycle: calculateSelfSitting(dayGan, lunar.getDayZhi?.() || ganZhi[1] || ''),
+    selfSitting: calculateSelfSitting(lunar.getDayGan?.() || ganZhi[0] || '', lunar.getDayZhi?.() || ganZhi[1] || ''),
+    naYin: LunarUtil.NAYIN?.[ganZhi] || '',
     xun: lunar.getDayXun?.() || '',
     xunKong: lunar.getDayXunKong?.() || '',
   };
