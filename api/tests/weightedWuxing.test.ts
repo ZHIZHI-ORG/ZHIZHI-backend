@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   calculateFullChart,
   calculateWeightedWuxingFromChart,
+  ensureChartLuckMetadata,
 } = require('../src/utils/baziCalculator.ts');
 
 async function main(): Promise<void> {
@@ -35,6 +36,37 @@ async function main(): Promise<void> {
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].lifecycle, '绝', '流月星运应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].selfSitting, '长生', '流月自坐应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].naYin, '城头土', '流月纳音应随接口返回给前端');
+
+  const legacyChart = JSON.parse(JSON.stringify(chart1995));
+  const legacyCycle = legacyChart.majorCycles[1];
+  const legacyAnnual = legacyCycle.annualLuck[0];
+  const legacyMonthly = legacyAnnual.monthlyLuck[0];
+  legacyAnnual.hiddenStems = legacyAnnual.hiddenStems.map((item: any) => ({ stem: item.stem }));
+  legacyAnnual.lifecycle = '';
+  legacyAnnual.selfSitting = '';
+  legacyAnnual.naYin = '';
+  legacyMonthly.hiddenStems = legacyMonthly.hiddenStems.map((item: any) => ({ stem: item.stem }));
+  legacyMonthly.lifecycle = '';
+  legacyMonthly.selfSitting = '';
+  legacyMonthly.naYin = '';
+
+  const upgradedChart = ensureChartLuckMetadata(legacyChart, chart1995.dayMaster);
+  assert.deepEqual(
+    upgradedChart.majorCycles[1].annualLuck[0].hiddenStems,
+    chart1995.majorCycles[1].annualLuck[0].hiddenStems,
+    '旧 full_chart 的流年藏干应在读路径补齐十神和五行'
+  );
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].lifecycle, '帝旺', '旧 full_chart 的流年星运应在读路径补齐');
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].selfSitting, '绝', '旧 full_chart 的流年自坐应在读路径补齐');
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].naYin, '泉中水', '旧 full_chart 的流年纳音应在读路径补齐');
+  assert.deepEqual(
+    upgradedChart.majorCycles[1].annualLuck[0].monthlyLuck[0].hiddenStems,
+    chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].hiddenStems,
+    '旧 full_chart 的流月藏干应在读路径补齐十神和五行'
+  );
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].monthlyLuck[0].lifecycle, '绝', '旧 full_chart 的流月星运应在读路径补齐');
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].monthlyLuck[0].selfSitting, '长生', '旧 full_chart 的流月自坐应在读路径补齐');
+  assert.equal(upgradedChart.majorCycles[1].annualLuck[0].monthlyLuck[0].naYin, '城头土', '旧 full_chart 的流月纳音应在读路径补齐');
 
   assert.deepEqual(chart1995.wuxing, {
     金: 1,
