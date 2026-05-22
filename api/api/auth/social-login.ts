@@ -14,7 +14,8 @@
  * {
  *   provider: "apple" | "google"  // 第三方平台
  *   socialToken: string            // iOS SDK 返回的 identity_token
- *   invitationCode?: string        // 邀请码（新用户时需要，对应前端 invitationCode）
+ *   nonce?: string                 // Google 登录生产校验用的一次性随机码
+ *   invitationCode?: string        // 邀请码（邀请码门禁开启时新用户需要）
  * }
  *
  * 响应（两种情况）：
@@ -23,6 +24,7 @@
  */
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { socialLogin } from '../../src/services/authService';
+import { isInviteCodeRequired } from '../../src/config/auth';
 import { Response } from '../../src/utils/response';
 import { formatError } from '../../src/utils/errors';
 
@@ -35,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const {
       provider,
       socialToken,     // 前端 camelCase，对应 simple.md §3.2 socialToken 字段
+      nonce,           // Google Sign-In 生产环境 nonce 校验
       invitationCode,  // 前端 camelCase（可选）
     } = req.body ?? {};
 
@@ -52,25 +55,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    if (provider === 'google' && (!nonce || typeof nonce !== 'string')) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_FIELD', message: 'Google 登录缺少必填字段：nonce' },
+      });
+    }
+
     // 调用 service 层，返回 SocialLoginResponse（两种 status）
     const result = await socialLogin({
       provider,
       social_token: socialToken,          // camelCase → snake_case
+      nonce,
       invitation_code: invitationCode,    // camelCase → snake_case（可 undefined）
     });
 
     if (result.status === 'ok') {
-      // 已有账号或新用户+邀请码：正常登录/注册成功
+      // 已有账号，或新用户在当前邀请码门禁策略下注册成功
       const response = Response.ok(result.data, '登录成功');
       return res.status(response.statusCode).json(response.body);
     } else {
-      // 新用户且无邀请码：202，让前端引导用户输入邀请码
+      // 新用户且当前开启邀请码门禁：202，让前端引导用户补全信息
       return res.status(202).json({
         success: true,
         data: {
           status: 'need_info',
           temp_token: result.temp_token,
-          message: '请输入邀请码以完成注册',
+          message: isInviteCodeRequired() ? '请输入邀请码以完成注册' : '请补全注册信息以完成注册',
         },
       });
     }

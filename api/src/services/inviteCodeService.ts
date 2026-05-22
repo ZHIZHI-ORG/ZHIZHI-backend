@@ -14,8 +14,92 @@
  *   抽成独立 Service 避免重复代码，也便于单独测试和未来修改门禁策略。
  */
 import { inviteCodeRepository } from '../database/repositories/InviteCodeRepository';
+import { userRepository } from '../database/repositories/UserRepository';
 import { InviteCode, InviteCodeCheckResult, InviteCodeScene } from '../models/InviteCode';
 import { ValidationError } from '../utils/errors';
+
+const FRIEND_INVITE_WEEKLY_LIMIT = 5;
+const HONG_KONG_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export interface InviteQuotaContract {
+  code: string;
+  used_count: number;
+  max_uses: number;
+  remaining_count: number | null;
+  reset_policy: 'weekly' | 'none' | 'lifetime';
+  reset_at: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string;
+}
+
+function getHongKongWeekWindow(now = new Date()): { start: Date; nextReset: Date } {
+  const hkDate = new Date(now.getTime() + HONG_KONG_OFFSET_MS);
+  const day = hkDate.getUTCDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  const startHkMs = Date.UTC(
+    hkDate.getUTCFullYear(),
+    hkDate.getUTCMonth(),
+    hkDate.getUTCDate() - daysSinceMonday,
+    0,
+    0,
+    0,
+    0,
+  );
+  const start = new Date(startHkMs - HONG_KONG_OFFSET_MS);
+  const nextReset = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { start, nextReset };
+}
+
+function formatHongKongIso(date: Date): string {
+  const hkDate = new Date(date.getTime() + HONG_KONG_OFFSET_MS);
+  const y = hkDate.getUTCFullYear();
+  const m = String(hkDate.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(hkDate.getUTCDate()).padStart(2, '0');
+  const hh = String(hkDate.getUTCHours()).padStart(2, '0');
+  const mm = String(hkDate.getUTCMinutes()).padStart(2, '0');
+  const ss = String(hkDate.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}+08:00`;
+}
+
+function toDatabaseIso(date: Date): string {
+  return date.toISOString();
+}
+
+function getEffectiveMaxUses(inviteCode: InviteCode): number {
+  if (inviteCode.created_by) {
+    return inviteCode.max_uses === -1 ? FRIEND_INVITE_WEEKLY_LIMIT : inviteCode.max_uses;
+  }
+  return inviteCode.max_uses;
+}
+
+async function getEffectiveUsedCount(inviteCode: InviteCode): Promise<number> {
+  if (!inviteCode.created_by) {
+    return inviteCode.used_count;
+  }
+
+  const { start } = getHongKongWeekWindow();
+  return inviteCodeRepository.countUsagesByCodeSince(inviteCode.id, start.toISOString());
+}
+
+export async function buildInviteQuotaContract(inviteCode: InviteCode): Promise<InviteQuotaContract> {
+  const maxUses = getEffectiveMaxUses(inviteCode);
+  const usedCount = await getEffectiveUsedCount(inviteCode);
+  const isUnlimited = maxUses === -1;
+  const { nextReset } = getHongKongWeekWindow();
+
+  return {
+    code: inviteCode.code,
+    used_count: usedCount,
+    max_uses: maxUses,
+    remaining_count: isUnlimited ? null : Math.max(0, maxUses - usedCount),
+    reset_policy: inviteCode.created_by ? 'weekly' : isUnlimited ? 'none' : 'lifetime',
+    reset_at: inviteCode.created_by ? formatHongKongIso(nextReset) : null,
+    period_start: inviteCode.period_start,
+    period_end: inviteCode.period_end,
+    created_at: inviteCode.created_at,
+  };
+}
 
 /**
  * 校验邀请码是否有效
@@ -56,8 +140,11 @@ export async function checkInviteCode(code: string): Promise<InviteCodeCheckResu
     return { valid: false, message: '邀请码已过期' };
   }
 
+  const maxUses = getEffectiveMaxUses(inviteCode);
+  const usedCount = await getEffectiveUsedCount(inviteCode);
+
   // 超出使用次数（max_uses = -1 表示无限制，跳过此检查）
-  if (inviteCode.max_uses !== -1 && inviteCode.used_count >= inviteCode.max_uses) {
+  if (maxUses !== -1 && usedCount >= maxUses) {
     return { valid: false, message: '邀请码已被使用完毕' };
   }
 
@@ -110,14 +197,27 @@ export async function consumeInviteCode(inviteCode: InviteCode, newUserId: strin
  * @returns InviteCode
  */
 export async function getUserInviteCode(userId: string): Promise<InviteCode> {
-  // 先查询用户是否已有邀请码
-  const existing = await inviteCodeRepository.findByCreator(userId);
-  if (existing.length > 0) {
-    return existing[0]; // 返回最新的一个
+  const { start, nextReset } = getHongKongWeekWindow();
+  const periodStart = toDatabaseIso(start);
+  const periodEnd = toDatabaseIso(nextReset);
+
+  // 每个用户每个自然周只保留一个当前有效邀请码。旧周期码通过 expires_at 自动失效。
+  const existing = await inviteCodeRepository.findByCreatorAndPeriod(userId, periodStart);
+  if (existing) {
+    return existing;
   }
 
-  // 没有则自动生成
-  return await inviteCodeRepository.createForUser(userId);
+  try {
+    return await inviteCodeRepository.createForUser(userId, periodStart, periodEnd);
+  } catch (error) {
+    // 并发打开邀请页时，数据库唯一索引会保证同一用户同一周期只有一个有效码。
+    // 如果另一个请求已经创建成功，当前请求重读即可，避免前端看到偶发失败。
+    const raced = await inviteCodeRepository.findByCreatorAndPeriod(userId, periodStart);
+    if (raced) {
+      return raced;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -136,14 +236,31 @@ export async function getUserInvitations(userId: string): Promise<InvitationReco
 
   // 汇总所有码的使用记录
   const allUsages: InvitationRecord[] = [];
+  const invitedUserIds = new Set<string>();
   for (const code of codes) {
     const usages = await inviteCodeRepository.findUsagesByCode(code.id);
     for (const usage of usages) {
+      invitedUserIds.add(usage.used_by_user_id);
       allUsages.push({
+        id: usage.id,
         invite_code: code.code,
+        inviter_user_id: userId,
         invited_user_id: usage.used_by_user_id,
         invited_at: usage.used_at,
+        created_at: usage.used_at,
+        email: null,
+        display_name: null,
       });
+    }
+  }
+
+  const invitedUsers = await userRepository.findByIds(Array.from(invitedUserIds));
+  const usersById = new Map(invitedUsers.map((user) => [user.id, user]));
+  for (const record of allUsages) {
+    const invitedUser = usersById.get(record.invited_user_id);
+    if (invitedUser) {
+      record.email = invitedUser.email;
+      record.display_name = invitedUser.display_name ?? null;
     }
   }
 
@@ -156,7 +273,12 @@ export async function getUserInvitations(userId: string): Promise<InvitationReco
  * 邀请记录（返回给前端的格式）
  */
 export interface InvitationRecord {
+  id: string;
   invite_code: string;    // 使用的邀请码
+  inviter_user_id: string; // 邀请人用户 ID
   invited_user_id: string; // 被邀请用户的 ID
   invited_at: string;     // 邀请时间
+  created_at: string;     // 前端列表兼容字段，同 invited_at
+  email: string | null;
+  display_name: string | null;
 }

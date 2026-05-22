@@ -6,7 +6,19 @@
   "scripts": {
     "dev": "vercel dev",
     "dev:node": "ts-node server.ts",
+    "doctor": "node scripts/doctor.js",
+    "generate:ganzhi-calendar": "node scripts/generate-ganzhi-calendar.js",
+    "generate:four-pillars-daily-index": "node scripts/generate-four-pillars-daily-index.js",
+    "verify:ganzhi-calendar": "node scripts/verify-ganzhi-calendar.js",
+    "verify:four-pillars-daily-index": "node scripts/verify-four-pillars-daily-index.js",
     "build": "tsc",
+    "test:shensha": "ts-node tests/shenShaValidation.ts",
+    "test:wuxing": "ts-node tests/weightedWuxing.test.ts",
+    "test:mingli-interactions": "ts-node tests/mingliInteractions.test.ts",
+    "test:true-solar-time": "ts-node tests/trueSolarTimeService.test.ts",
+    "test:history": "ts-node tests/historyService.test.ts",
+    "test:invite": "ts-node tests/inviteCodeService.test.ts",
+    "test:commerce": "ts-node tests/commerceService.test.ts",
     "deploy": "vercel --prod",
     "type-check": "tsc --noEmit"
   },
@@ -19,6 +31,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@apple/app-store-server-library": "^3.0.0",
     "@supabase/supabase-js": "^2.39.3",
     "@vercel/node": "^3.0.12",
     "dotenv": "^16.3.1",

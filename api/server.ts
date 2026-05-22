@@ -42,15 +42,29 @@ import profileExtendedHandler  from './api/user/profile/extended';
 import baziCreateHandler from './api/bazi/create';
 import baziListHandler   from './api/bazi/list';
 import baziByIdHandler   from './api/bazi/[id]';
+import baziChartHandler  from './api/bazi/[id]/chart';
+import baziLuckHandler   from './api/bazi/[id]/luck';
+import baziLuckAnalysisHandler from './api/bazi/[id]/luck-analysis';
 
 // 运势模块（对应 simple.md §5 首页模块）
 import fortuneDailyHandler from './api/fortune/daily';
+import fortuneDrilldownHandler from './api/fortune/drilldown';
 
 // 洞察模块（对应 simple.md §6 洞察分析模块）
 import insightCardsHandler    from './api/insights/cards';
 import insightAnalysisHandler from './api/insights/analysis';
 import insightDetailHandler   from './api/insights/detail/[category]';
 
+// 历史档案模块
+import historyHandler from './api/history/index';
+import historyByIdHandler from './api/history/[id]';
+import historyFavoriteHandler from './api/history/[id]/favorite';
+
+// 商业化模块
+import commerceStatusHandler from './api/commerce/status';
+import commerceTransactionSyncHandler from './api/commerce/transactions/sync';
+import commercePointsLedgerHandler from './api/commerce/points/ledger';
+import commercePointsConsumeHandler from './api/commerce/points/consume';
 
 // ─────────────────────────────────────────────────────────────
 // 路由表（精确路径匹配）
@@ -83,10 +97,20 @@ const routes: Record<string, any> = {
 
   // 运势模块
   '/api/fortune/daily': fortuneDailyHandler,
+  '/api/fortune/drilldown': fortuneDrilldownHandler,
 
   // 洞察模块（精确路径，动态 /api/insights/detail/:category 在下方处理）
   '/api/insights/cards':    insightCardsHandler,
   '/api/insights/analysis': insightAnalysisHandler,
+
+  // 历史档案模块
+  '/api/history': historyHandler,
+
+  // 商业化模块
+  '/api/commerce/status': commerceStatusHandler,
+  '/api/commerce/transactions/sync': commerceTransactionSyncHandler,
+  '/api/commerce/points/ledger': commercePointsLedgerHandler,
+  '/api/commerce/points/consume': commercePointsConsumeHandler,
 };
 
 
@@ -113,16 +137,37 @@ const server = http.createServer(async (req, res) => {
   let handler = routes[pathname];
   let params: Record<string, string> = {};
 
-  // Step 2: 动态路由匹配（/api/bazi/:id，排除已精确匹配的 create/list）
+  // Step 2: 动态路由匹配（/api/bazi/:id/...，排除已精确匹配的 create/list）
   if (!handler && pathname.startsWith('/api/bazi/')) {
-    const id = pathname.replace('/api/bazi/', '');
+    const parts = pathname.replace('/api/bazi/', '').split('/').filter(Boolean);
+    const id = parts[0];
+    const child = parts[1];
     if (id && id !== 'list' && id !== 'create') {
-      handler = baziByIdHandler;
+      if (child === 'chart') {
+        handler = baziChartHandler;
+      } else if (child === 'luck') {
+        handler = baziLuckHandler;
+      } else if (child === 'luck-analysis') {
+        handler = baziLuckAnalysisHandler;
+      } else if (!child) {
+        handler = baziByIdHandler;
+      }
       params = { id };
     }
   }
 
-  // Step 3: 动态路由匹配（/api/insights/detail/:category）
+  // Step 3: 动态路由匹配（/api/history/:id/...）
+  if (!handler && pathname.startsWith('/api/history/')) {
+    const parts = pathname.replace('/api/history/', '').split('/').filter(Boolean);
+    const id = parts[0];
+    const child = parts[1];
+    if (id) {
+      handler = child === 'favorite' ? historyFavoriteHandler : historyByIdHandler;
+      params = { id };
+    }
+  }
+
+  // Step 4: 动态路由匹配（/api/insights/detail/:category）
   if (!handler && pathname.startsWith('/api/insights/detail/')) {
     const category = pathname.replace('/api/insights/detail/', '');
     if (category) {
@@ -149,7 +194,7 @@ const server = http.createServer(async (req, res) => {
         method:  req.method,
         url:     req.url,
         headers: req.headers,
-        query:   parsedUrl.query,
+        query:   { ...parsedUrl.query, ...params },
         params,
         // 安全解析 JSON body（空 body 或非 JSON 时不报错）
         body: body

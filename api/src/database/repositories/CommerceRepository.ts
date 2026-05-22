@@ -1,0 +1,161 @@
+import { supabase } from '../supabase';
+import {
+  CommerceAccount,
+  CommerceMembership,
+  CommercePointsLedgerItem,
+  CommerceTransaction,
+} from '../../models/Commerce';
+
+export class CommerceRepository {
+  async findAccountByUser(userId: string): Promise<CommerceAccount | null> {
+    const { data, error } = await supabase
+      .from('commerce_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) return null;
+    return data as CommerceAccount;
+  }
+
+  async upsertAccountToken(userId: string, appAccountToken: string): Promise<CommerceAccount> {
+    const { data, error } = await supabase
+      .from('commerce_accounts')
+      .upsert({
+        user_id: userId,
+        app_account_token: appAccountToken,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`保存 App Account Token 失败: ${error.message}`);
+    }
+
+    return data as CommerceAccount;
+  }
+
+  async findTransactionById(transactionId: string): Promise<CommerceTransaction | null> {
+    const { data, error } = await supabase
+      .from('commerce_transactions')
+      .select('*')
+      .eq('transaction_id', transactionId)
+      .single();
+
+    if (error || !data) return null;
+    return data as CommerceTransaction;
+  }
+
+  async createTransaction(input: Omit<CommerceTransaction, 'processed_at' | 'created_at'>): Promise<CommerceTransaction> {
+    const { data, error } = await supabase
+      .from('commerce_transactions')
+      .insert(input)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`保存交易失败: ${error.message}`);
+    }
+
+    return data as CommerceTransaction;
+  }
+
+  async getLatestMembership(userId: string): Promise<CommerceMembership | null> {
+    const { data, error } = await supabase
+      .from('commerce_memberships')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) return null;
+    return data as CommerceMembership;
+  }
+
+  async upsertMembership(input: Omit<CommerceMembership, 'created_at' | 'updated_at'>): Promise<CommerceMembership> {
+    const { data, error } = await supabase
+      .from('commerce_memberships')
+      .upsert({
+        ...input,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`保存会员权益失败: ${error.message}`);
+    }
+
+    return data as CommerceMembership;
+  }
+
+  async getPointsBalance(userId: string): Promise<{ balance: number; updated_at: string | null }> {
+    const { data, error } = await supabase
+      .from('commerce_points_balances')
+      .select('balance, updated_at')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) {
+      return { balance: 0, updated_at: null };
+    }
+
+    return {
+      balance: Number(data.balance || 0),
+      updated_at: data.updated_at || null,
+    };
+  }
+
+  async applyPointsDelta(input: {
+    userId: string;
+    type: 'purchase' | 'consume' | 'refund' | 'adjustment';
+    delta: number;
+    source: string;
+    sourceId?: string | null;
+    idempotencyKey: string;
+    metadata?: Record<string, any>;
+  }): Promise<CommercePointsLedgerItem> {
+    const { data, error } = await supabase.rpc('apply_commerce_points_delta', {
+      p_user_id: input.userId,
+      p_type: input.type,
+      p_delta: input.delta,
+      p_source: input.source,
+      p_source_id: input.sourceId || null,
+      p_idempotency_key: input.idempotencyKey,
+      p_metadata: input.metadata || {},
+    });
+
+    if (error) {
+      throw new Error(`更新积分账本失败: ${error.message}`);
+    }
+
+    return data as CommercePointsLedgerItem;
+  }
+
+  async listPointsLedger(
+    userId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<{ items: CommercePointsLedgerItem[]; total: number }> {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const { data, error, count } = await supabase
+      .from('commerce_points_ledger')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`查询积分账本失败: ${error.message}`);
+    }
+
+    return {
+      items: (data || []) as CommercePointsLedgerItem[],
+      total: count || 0,
+    };
+  }
+}
+
+export const commerceRepository = new CommerceRepository();
+

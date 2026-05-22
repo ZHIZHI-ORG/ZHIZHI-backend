@@ -111,6 +111,12 @@ export class BaziProfileRepository {
         // 扩展字段（simple.md §4.3）
         birth_country: input.birth_country || null,
         birth_region: input.birth_region || null,
+        birth_latitude: input.birth_latitude ?? null,
+        birth_longitude: input.birth_longitude ?? null,
+        time_basis: input.time_basis || null,
+        true_solar_time: input.true_solar_time || null,
+        true_solar_correction_minutes: input.true_solar_correction_minutes ?? null,
+        calculation_metadata: input.calculation_metadata || null,
         mbti: input.mbti || null,
 
         // 备注

@@ -11,6 +11,12 @@ export interface User {
   email: string;
   display_name?: string; // 显示名称（昵称）
   avatar_url?: string;
+  bio?: string;
+  location?: string;
+  career?: string;
+  school?: string;
+  mbti?: string;
+  notes?: string;
   is_active: boolean;
   is_email_verified: boolean;
   bazi_profile_count: number; // 创建的八字档案数量
@@ -57,6 +63,12 @@ export interface UserProfile {
   is_email_verified: boolean;
   bazi_profile_count: number;
   created_at: string;
+  bio?: string;
+  location?: string;
+  career?: string;
+  school?: string;
+  mbti?: string;
+  notes?: string;
 }
 
 /**

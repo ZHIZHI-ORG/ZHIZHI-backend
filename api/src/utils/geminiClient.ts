@@ -19,8 +19,11 @@ const GEMINI_ENDPOINT =
 // ─────────────────────────────────────────────────────────────
 
 export interface FollowUpQuestion {
+  id?: string;
   question: string;  // 追问问题（10-20字）
   answer: string;    // 答案（150-200字，支持高亮语法）
+  category?: string;
+  depth?: number;
 }
 
 // 统一中型洞察卡片结构（对应 simple.md MediumInsightCard）
@@ -29,6 +32,7 @@ export interface MediumInsightCard {
   golden_sentence: string;             // 核心金句（5-10字）
   detailed_content: string;            // 详细建议（80-120字，支持高亮语法）
   followUpQuestions: FollowUpQuestion[]; // 追问问题+答案（2个）
+  follow_up_questions?: FollowUpQuestion[];
 }
 
 export interface SceneAdvice {
@@ -268,6 +272,48 @@ ${baziContext}
     console.error('[Gemini] 生成失败，降级为示例数据:', error);
     return buildMockData(profile);
   }
+}
+
+export async function generateDrilldownAnswer(
+  profile: BaziProfile,
+  question: string,
+  context: string,
+): Promise<string> {
+  if (!GEMINI_API_KEY) {
+    return buildFallbackDrilldownAnswer(profile, question);
+  }
+
+  const baziContext = buildBaziContext(profile, []);
+  const prompt = `
+你是一位谨慎、温和的八字命理分析助手。用户只能从系统生成的问题中选择追问，不是开放聊天。
+
+${baziContext}
+
+【当前上下文】
+${context}
+
+【用户选择的问题】
+${question}
+
+请用 120-180 字回答。要求：
+1. 只回答这个问题，不扩展到医疗、金融、法律确定性建议。
+2. 用建议性语言，不做绝对断言。
+3. 内容要具体可执行。
+4. 只输出正文，不要 JSON。
+`;
+
+  try {
+    return await callGemini(prompt);
+  } catch (error) {
+    console.error('[Gemini] 下钻生成失败，降级为示例答案:', error);
+    return buildFallbackDrilldownAnswer(profile, question);
+  }
+}
+
+function buildFallbackDrilldownAnswer(profile: BaziProfile, question: string): string {
+  const stem = profile.day_master || '日主';
+  const element = profile.day_master_element || '五行';
+  return `围绕“${question}”，今天更适合用稳健、可验证的小步骤推进。以${stem}${element}的节奏来看，先把目标拆成一件能在当下完成的事，再观察反馈，不宜一次做过多承诺。若涉及健康、财务或法律判断，请把这里当作参考提醒，并以专业意见为准。`;
 }
 
 // ─────────────────────────────────────────────────────────────

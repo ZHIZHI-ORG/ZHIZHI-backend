@@ -4,7 +4,7 @@
  */
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { getCurrentUser } from '../../src/utils/auth';
-import { getUserInviteCode } from '../../src/services/inviteCodeService';
+import { buildInviteQuotaContract, getUserInviteCode } from '../../src/services/inviteCodeService';
 import { Response } from '../../src/utils/response';
 import { formatError } from '../../src/utils/errors';
 
@@ -16,12 +16,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const currentUser = await getCurrentUser(req);
     const inviteCode = await getUserInviteCode(currentUser.id);
+    const quota = await buildInviteQuotaContract(inviteCode);
 
-    const response = Response.ok({
-      code: inviteCode.code,
-      used_count: inviteCode.used_count,
-      created_at: inviteCode.created_at,
-    });
+    const response = Response.ok(quota);
     return res.status(response.statusCode).json(response.body);
   } catch (error) {
     const errorResponse = formatError(error);
