@@ -19,7 +19,13 @@ import {
   BaziProfileListResponse,
 } from '../models/BaziProfile';
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors';
-import { buildDailyLuckData, calculateFullChart, calculateSelfSitting, calculateWeightedWuxingFromChart } from '../utils/baziCalculator';
+import {
+  buildDailyLuckData,
+  calculateFullChart,
+  calculateSelfSitting,
+  ensureChartLuckMetadata,
+  calculateWeightedWuxingFromChart,
+} from '../utils/baziCalculator';
 import {
   buildMingliFactPanel,
   buildNatalMingliInteractions,
@@ -467,7 +473,7 @@ function toEnglishElement(element: string): string {
 }
 
 function getChart(profile: BaziProfile): any {
-  return profile.full_chart || {
+  const chart = profile.full_chart || {
     dayMaster: profile.day_master,
     dayMasterElement: profile.day_master_element,
     year: {
@@ -489,6 +495,7 @@ function getChart(profile: BaziProfile): any {
     wuxing: profile.wuxing_analysis,
     majorCycles: [],
   };
+  return ensureChartLuckMetadata(chart, profile.day_master);
 }
 
 function mapMajorCycle(cycle: any, index: number) {

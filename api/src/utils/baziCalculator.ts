@@ -737,6 +737,68 @@ export function calculateSelfSitting(stem: string, branch: string): string {
   return SELF_SITTING_TABLE[stem]?.[branch] || '';
 }
 
+export function calculateNaYin(ganZhi: string): string {
+  return LunarUtil.NAYIN?.[ganZhi] || '';
+}
+
+export function ensureChartLuckMetadata(chart: any, fallbackDayMaster?: string): any {
+  const dayMaster = chart?.dayMaster || fallbackDayMaster || chart?.day?.stem || '';
+  if (!chart || !dayMaster) return chart;
+
+  ['year', 'month', 'day', 'time'].forEach((key) => {
+    if (chart[key]) {
+      chart[key] = enrichLuckItem(chart[key], dayMaster);
+    }
+  });
+
+  (chart.majorCycles || []).forEach((cycle: any) => {
+    enrichLuckItem(cycle, dayMaster);
+    (cycle.annualLuck || cycle.annual_luck || []).forEach((annual: any) => {
+      enrichLuckItem(annual, dayMaster);
+      (annual.monthlyLuck || annual.monthly_luck || []).forEach((monthly: any) => {
+        enrichLuckItem(monthly, dayMaster);
+      });
+    });
+  });
+
+  return chart;
+}
+
+function enrichLuckItem(item: any, dayMaster: string): any {
+  const ganZhi = item.ganZhi || item.gan_zhi || joinGanZhi(item.stem, item.branch);
+  const stem = item.stem || ganZhi[0] || '';
+  const branch = item.branch || ganZhi[1] || '';
+
+  if (!item.stem && stem) item.stem = stem;
+  if (!item.branch && branch) item.branch = branch;
+  if (!item.ganZhi && ganZhi) item.ganZhi = ganZhi;
+
+  if (branch && hiddenStemsNeedUpgrade(item.hiddenStems || item.hidden_stems)) {
+    item.hiddenStems = buildHiddenStemData(dayMaster, branch);
+  }
+  if (!item.lifecycle && branch) {
+    item.lifecycle = calculateSelfSitting(dayMaster, branch);
+  }
+  if (!item.selfSitting && !item.self_sitting && stem && branch) {
+    item.selfSitting = calculateSelfSitting(stem, branch);
+  }
+  if (!item.naYin && !item.na_yin && ganZhi) {
+    item.naYin = calculateNaYin(ganZhi);
+  }
+
+  return item;
+}
+
+function hiddenStemsNeedUpgrade(hiddenStems: any): boolean {
+  return !Array.isArray(hiddenStems)
+    || hiddenStems.length === 0
+    || hiddenStems.some((item: any) => !item?.stem || !item?.tenGod || !item?.element);
+}
+
+function joinGanZhi(stem?: string, branch?: string): string {
+  return `${stem || ''}${branch || ''}`;
+}
+
 function applyRepoExtraShenSha(
   pillars: PillarData[],
   yearGan: string,
