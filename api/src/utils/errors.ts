@@ -22,6 +22,7 @@ export enum ErrorCode {
   // 服务器错误
   INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
   DATABASE_ERROR = 'DATABASE_ERROR',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
 }
 
 /**
@@ -81,6 +82,16 @@ export class ValidationError extends AppError {
   constructor(message: string, details?: any) {
     super(message, ErrorCode.VALIDATION_ERROR, 400, details);
     this.name = 'ValidationError';
+  }
+}
+
+/**
+ * 上游依赖暂时不可用（503）
+ */
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string = '服务暂时不可用，请稍后重试', details?: any) {
+    super(message, ErrorCode.SERVICE_UNAVAILABLE, 503, details);
+    this.name = 'ServiceUnavailableError';
   }
 }
 

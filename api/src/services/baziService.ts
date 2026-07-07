@@ -21,17 +21,24 @@ import {
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors';
 import {
   buildDailyLuckData,
+  buildDailyLuckListForMonth,
   calculateFullChart,
   calculateSelfSitting,
   ensureChartLuckMetadata,
   calculateWeightedWuxingFromChart,
 } from '../utils/baziCalculator';
 import {
+  buildMingliGanZhiEffectsBrief,
   buildMingliFactPanel,
   buildNatalMingliInteractions,
   buildTimingMingliInteractions,
   MingliInteraction,
+  MingliGanZhiEffectsBrief,
 } from '../utils/mingliInteractionEngine';
+import { buildBaziBasicInfo } from '../utils/baziBasicInfo';
+import { buildMingliAiContext } from '../utils/mingliAiContext';
+import { buildPatternCandidates } from '../utils/patternJudgement';
+import { buildZipingAiBrief, buildZipingStructureFacts } from '../utils/zipingStructureFacts';
 import { normalizeBirthTimeForBazi } from './trueSolarTimeService';
 
 // ============================================================
@@ -67,6 +74,7 @@ export async function createBaziProfile(
   }
 
   // 3. 先按出生地经纬度校准真太阳时，再计算完整命盘
+  const inputHasKnownHour = hasKnownBirthHour(input);
   const normalizedBirthTime = normalizeBirthTimeForBazi({
     year: input.birth_year,
     month: input.birth_month,
@@ -74,8 +82,8 @@ export async function createBaziProfile(
     hour: input.birth_hour ?? 12,
     minute: input.birth_minute ?? 0,
     timezone: input.birth_timezone || 'Asia/Shanghai',
-    longitude: input.birth_longitude,
-    latitude: input.birth_latitude,
+    longitude: inputHasKnownHour ? input.birth_longitude ?? undefined : undefined,
+    latitude: inputHasKnownHour ? input.birth_latitude ?? undefined : undefined,
   });
 
   const chart = await calculateFullChart(
@@ -88,9 +96,9 @@ export async function createBaziProfile(
     input.gender === 'female' ? 2 : 1,
     1,   // sect 默认流派1
   );
-  chart.calculationInfo = {
-    trueSolarTime: normalizedBirthTime,
-  };
+  chart.calculationInfo = inputHasKnownHour
+    ? { trueSolarTime: normalizedBirthTime }
+    : { hourPrecision: 'unknown', internalFallbackHour: 12 };
 
   // 4. 写入数据库
   const profile = await baziProfileRepository.create(userId, {
@@ -111,12 +119,12 @@ export async function createBaziProfile(
     birth_region: input.birth_region,
     birth_latitude: input.birth_latitude,
     birth_longitude: input.birth_longitude,
-    time_basis: normalizedBirthTime.timeBasis,
-    true_solar_time: formatNormalizedBirthTime(normalizedBirthTime.corrected),
-    true_solar_correction_minutes: normalizedBirthTime.correctionMinutes,
-    calculation_metadata: {
-      true_solar_time: normalizedBirthTime,
-    },
+    time_basis: inputHasKnownHour ? normalizedBirthTime.timeBasis : 'standard_time',
+    true_solar_time: inputHasKnownHour ? formatNormalizedBirthTime(normalizedBirthTime.corrected) : null,
+    true_solar_correction_minutes: inputHasKnownHour ? normalizedBirthTime.correctionMinutes : null,
+    calculation_metadata: inputHasKnownHour
+      ? { true_solar_time: normalizedBirthTime }
+      : { hour_precision: 'unknown', internal_fallback_hour: 12 },
     mbti: input.mbti,
     notes: input.notes,
     // 基础四柱冗余列
@@ -126,8 +134,8 @@ export async function createBaziProfile(
     bazi_month_branch: chart.month.branch,
     bazi_day_stem: chart.day.stem,
     bazi_day_branch: chart.day.branch,
-    bazi_hour_stem: chart.time.stem,
-    bazi_hour_branch: chart.time.branch,
+    bazi_hour_stem: inputHasKnownHour ? chart.time.stem : null,
+    bazi_hour_branch: inputHasKnownHour ? chart.time.branch : null,
     // 五行分析
     wuxing_analysis: chart.wuxing,
     // 完整命盘 JSONB
@@ -223,6 +231,7 @@ export async function updateBaziProfile(
   const merged = mergeBaziUpdateInput(existing, input);
   validateBaziInput(merged);
 
+  const mergedHasKnownHour = hasKnownBirthHour(merged);
   const normalizedBirthTime = normalizeBirthTimeForBazi({
     year: merged.birth_year,
     month: merged.birth_month,
@@ -230,8 +239,8 @@ export async function updateBaziProfile(
     hour: merged.birth_hour ?? 12,
     minute: merged.birth_minute ?? 0,
     timezone: merged.birth_timezone || 'Asia/Shanghai',
-    longitude: merged.birth_longitude,
-    latitude: merged.birth_latitude,
+    longitude: mergedHasKnownHour ? merged.birth_longitude ?? undefined : undefined,
+    latitude: mergedHasKnownHour ? merged.birth_latitude ?? undefined : undefined,
   });
 
   const chart = await calculateFullChart(
@@ -244,9 +253,9 @@ export async function updateBaziProfile(
     merged.gender === 'female' ? 2 : 1,
     1,
   );
-  chart.calculationInfo = {
-    trueSolarTime: normalizedBirthTime,
-  };
+  chart.calculationInfo = mergedHasKnownHour
+    ? { trueSolarTime: normalizedBirthTime }
+    : { hourPrecision: 'unknown', internalFallbackHour: 12 };
 
   return await baziProfileRepository.update(profileId, {
     is_owner: existing.is_owner,
@@ -264,12 +273,12 @@ export async function updateBaziProfile(
     birth_region: merged.birth_region,
     birth_latitude: merged.birth_latitude,
     birth_longitude: merged.birth_longitude,
-    time_basis: normalizedBirthTime.timeBasis,
-    true_solar_time: formatNormalizedBirthTime(normalizedBirthTime.corrected),
-    true_solar_correction_minutes: normalizedBirthTime.correctionMinutes,
-    calculation_metadata: {
-      true_solar_time: normalizedBirthTime,
-    },
+    time_basis: mergedHasKnownHour ? normalizedBirthTime.timeBasis : 'standard_time',
+    true_solar_time: mergedHasKnownHour ? formatNormalizedBirthTime(normalizedBirthTime.corrected) : null,
+    true_solar_correction_minutes: mergedHasKnownHour ? normalizedBirthTime.correctionMinutes : null,
+    calculation_metadata: mergedHasKnownHour
+      ? { true_solar_time: normalizedBirthTime }
+      : { hour_precision: 'unknown', internal_fallback_hour: 12 },
     mbti: merged.mbti,
     notes: merged.notes,
     bazi_year_stem: chart.year.stem,
@@ -278,8 +287,8 @@ export async function updateBaziProfile(
     bazi_month_branch: chart.month.branch,
     bazi_day_stem: chart.day.stem,
     bazi_day_branch: chart.day.branch,
-    bazi_hour_stem: chart.time.stem,
-    bazi_hour_branch: chart.time.branch,
+    bazi_hour_stem: mergedHasKnownHour ? chart.time.stem : null,
+    bazi_hour_branch: mergedHasKnownHour ? chart.time.branch : null,
     wuxing_analysis: chart.wuxing,
     full_chart: chart,
     day_master: chart.dayMaster,
@@ -299,8 +308,8 @@ function mergeBaziUpdateInput(
     birth_year: input.birth_year ?? existing.birth_year,
     birth_month: input.birth_month ?? existing.birth_month,
     birth_day: input.birth_day ?? existing.birth_day,
-    birth_hour: input.birth_hour ?? existing.birth_hour,
-    birth_minute: input.birth_minute ?? existing.birth_minute,
+    birth_hour: hasOwn(input, 'birth_hour') ? input.birth_hour : existing.birth_hour,
+    birth_minute: hasOwn(input, 'birth_minute') ? input.birth_minute : existing.birth_minute,
     is_lunar: input.is_lunar ?? existing.is_lunar,
     birth_timezone: input.birth_timezone ?? existing.birth_timezone,
     birth_country: input.birth_country ?? existing.birth_country,
@@ -401,6 +410,75 @@ function weightedWuxingToContract(weighted: any) {
       branch: item.branch,
       note: item.note,
     })),
+  };
+}
+
+function patternCandidatesToContract(patternCandidates: any) {
+  if (!patternCandidates) return null;
+  const mapPenetration = (item: any) => ({
+    position: item.position,
+    stem: item.stem,
+    ten_god: item.tenGod,
+    weight: item.weight,
+  });
+  const mapRoot = (item: any) => ({
+    position: item.position,
+    branch: item.branch,
+    stem: item.stem,
+    qi: item.qi,
+    weight: item.weight,
+  });
+  const mapUsableGod = (item: any) => ({
+    id: item.id,
+    ten_god: item.tenGod,
+    stem: item.stem || '',
+    element: item.element || '',
+    source: item.source,
+    position: item.position || '',
+    branches: item.branches || [],
+    label: item.label || '',
+    confidence: item.confidence,
+    evidence: item.evidence || [],
+    notes: item.notes || [],
+  });
+  const mapCandidate = (candidate: any) => ({
+    id: candidate.id,
+    name: candidate.name,
+    family: candidate.family,
+    status: candidate.status,
+    confidence: candidate.confidence,
+    entry: candidate.entry,
+    ten_god: candidate.tenGod,
+    stem: candidate.stem || '',
+    element: candidate.element || '',
+    month_branch: candidate.monthBranch || '',
+    evidence: candidate.evidence || [],
+    penetration: (candidate.penetration || []).map(mapPenetration),
+    roots: (candidate.roots || []).map(mapRoot),
+    support_signals: candidate.supportSignals || [],
+    downgrade_signals: candidate.downgradeSignals || [],
+    notes: candidate.notes || [],
+  });
+
+  return {
+    method_version: patternCandidates.methodVersion || patternCandidates.method_version || 'pattern_candidates_v1',
+    regular: (patternCandidates.regular || []).map(mapCandidate),
+    mixed_qi: (patternCandidates.mixedQi || patternCandidates.mixed_qi || []).map(mapCandidate),
+    auxiliary: (patternCandidates.auxiliary || []).map(mapCandidate),
+    usable_gods: (patternCandidates.usableGods || patternCandidates.usable_gods || []).map(mapUsableGod),
+    notes: patternCandidates.notes || [],
+  };
+}
+
+function zipingAiBriefToContract(zipingAiBrief: any, ganZhiEffects?: MingliGanZhiEffectsBrief | null) {
+  if (!zipingAiBrief) return null;
+  return {
+    method_version: zipingAiBrief.method_version || zipingAiBrief.methodVersion || 'ziping_ai_brief_v1',
+    month_command: zipingAiBrief.month_command || '',
+    day_master_capacity: zipingAiBrief.day_master_capacity || '',
+    pattern_candidates: zipingAiBrief.pattern_candidates || [],
+    gan_zhi_effects: ganZhiEffects || zipingAiBrief.gan_zhi_effects || { heavenly_stems: [], earthly_branches: [] },
+    yongshen_arbitration_facts: zipingAiBrief.yongshen_arbitration_facts || '',
   };
 }
 
@@ -598,27 +676,63 @@ function mapDailyLuck(item: any) {
 export async function getBaziChart(userId: string, profileId: string) {
   const profile = await getBaziProfileById(userId, profileId);
   const chart = getChart(profile);
+  const profileHasKnownHour = hasKnownBirthHour(profile);
   const weightedWuxing = chart.weightedWuxing || chart.weighted_wuxing_analysis || calculateWeightedWuxingFromChart(chart);
+  const patternCandidates = chart.patternCandidates || chart.pattern_candidates || buildPatternCandidates({
+    dayMaster: chart.dayMaster || profile.day_master || '',
+    year: chart.year,
+    month: chart.month,
+    day: chart.day,
+    time: chart.time,
+    weightedWuxing,
+  });
+  const existingZipingBrief = chart.zipingAiBrief
+    || chart.ziping_ai_brief
+    || (chart.ziping_structure?.method_version === 'ziping_ai_brief_v1' ? chart.ziping_structure : null);
+  const zipingStructureFacts = chart.zipingStructureFacts
+    || (chart.ziping_structure?.method_version === 'ziping_structure_v2_fact_layer' ? chart.ziping_structure : null)
+    || buildZipingStructureFacts({
+      dayMaster: chart.dayMaster || profile.day_master || '',
+      dayMasterElement: chart.dayMasterElement || profile.day_master_element || '',
+      year: chart.year,
+      month: chart.month,
+      day: chart.day,
+      time: chart.time,
+      patternCandidates,
+    });
+  const zipingAiBrief = existingZipingBrief || buildZipingAiBrief(zipingStructureFacts);
+  const baziBasicInfo = buildBaziBasicInfo({ profile, chart });
   const natalInteractions = buildNatalMingliInteractions(chart);
+  const natalGanZhiEffects = buildMingliGanZhiEffectsBrief(natalInteractions);
+  const zipingStructure = zipingAiBriefToContract(zipingAiBrief, natalGanZhiEffects);
+  const mingliAiContext = buildMingliAiContext({
+    baziBasicInfo,
+    zipingStructure: profileHasKnownHour ? zipingStructure : null,
+  });
+  const pillars = [
+    toSnakePillar('year', chart.year),
+    toSnakePillar('month', chart.month),
+    toSnakePillar('day', chart.day),
+    ...(profileHasKnownHour ? [toSnakePillar('hour', chart.time)] : []),
+  ];
 
   return {
     profile_id: profile.id,
+    mingli_ai_context: mingliAiContext,
+    bazi_basic_info: baziBasicInfo,
     day_master: chart.dayMaster || profile.day_master || '',
     day_master_element: chart.dayMasterElement || profile.day_master_element || '',
-    hour_precision: profile.birth_hour === null || profile.birth_hour === undefined ? 'unknown' : 'known',
-    pillars: [
-      toSnakePillar('year', chart.year),
-      toSnakePillar('month', chart.month),
-      toSnakePillar('day', chart.day),
-      toSnakePillar('hour', chart.time),
-    ],
+    hour_precision: profileHasKnownHour ? 'known' : 'unknown',
+    pillars,
     wuxing_analysis: wuxingToContract(chart.wuxing || profile.wuxing_analysis),
     weighted_wuxing_analysis: weightedWuxingToContract(weightedWuxing),
-    mingli_facts: {
+    pattern_candidates: profileHasKnownHour ? patternCandidatesToContract(patternCandidates) : null,
+    ziping_structure: profileHasKnownHour ? zipingStructure : null,
+    mingli_facts: profileHasKnownHour ? {
       rule_version: 'mingli_interactions_v1',
       fact_panel: mingliFactPanelToContract(buildMingliFactPanel(natalInteractions)),
       natal_interactions: natalInteractions.map(mingliInteractionToContract),
-    },
+    } : null,
     calculation_info: {
       start_luck_age: chart.startAge || 0,
       start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
@@ -628,9 +742,9 @@ export async function getBaziChart(userId: string, profileId: string) {
       commanding_stem: chart.month?.stem || profile.bazi_month_stem || '',
       time_basis: profile.time_basis || chart.calculationInfo?.trueSolarTime?.timeBasis || 'standard_time',
       true_solar_time: profile.true_solar_time || null,
-      true_solar_correction_minutes: profile.true_solar_correction_minutes ?? chart.calculationInfo?.trueSolarTime?.correctionMinutes ?? null,
-      birth_longitude: profile.birth_longitude ?? chart.calculationInfo?.trueSolarTime?.longitude ?? null,
-      birth_latitude: profile.birth_latitude ?? chart.calculationInfo?.trueSolarTime?.latitude ?? null,
+      true_solar_correction_minutes: profileHasKnownHour ? profile.true_solar_correction_minutes ?? chart.calculationInfo?.trueSolarTime?.correctionMinutes ?? null : null,
+      birth_longitude: profile.birth_longitude ?? (profileHasKnownHour ? chart.calculationInfo?.trueSolarTime?.longitude ?? null : null),
+      birth_latitude: profile.birth_latitude ?? (profileHasKnownHour ? chart.calculationInfo?.trueSolarTime?.latitude ?? null : null),
     },
   };
 }
@@ -645,16 +759,18 @@ export async function getBaziLuckTimeline(
   }
   const profile = await getBaziProfileById(userId, profileId);
   const chart = getChart(profile);
-  const selectedDay = query.day || formatDateForLuck(new Date());
-  const year = query.year || Number(selectedDay.slice(0, 4));
+  const requestedDay = query.day || formatDateForLuck(new Date());
+  const year = query.year || Number(requestedDay.slice(0, 4));
   const majorCycles = (chart.majorCycles || []) as any[];
   const activeCycle = majorCycles.find((cycle) => year >= cycle.startYear && year <= cycle.endYear)
     || majorCycles[0];
   const annualLucks = (activeCycle?.annualLuck || []).map(mapAnnualLuck);
   const selectedAnnual = (activeCycle?.annualLuck || []).find((item: any) => item.year === year)
     || activeCycle?.annualLuck?.[0];
-  const selectedMonth = selectMonthlyLuck(selectedAnnual?.monthlyLuck || [], query.month, selectedDay);
+  const selectedMonth = selectMonthlyLuck(selectedAnnual?.monthlyLuck || [], query.month, requestedDay);
+  const selectedDay = resolveSelectedDay(query.day, requestedDay, selectedMonth);
   const selectedDaily = buildDailyLuckData(chart.dayMaster || profile.day_master || '', selectedDay);
+  const dailyLucks = buildDailyLuckListForMonth(chart.dayMaster || profile.day_master || '', selectedMonth, selectedDay);
   const timingInteractions = buildTimingMingliInteractions(chart, {
     dayun: activeCycle,
     liunian: selectedAnnual,
@@ -677,10 +793,68 @@ export async function getBaziLuckTimeline(
     major_cycles: majorCycles.map(mapMajorCycle),
     annual_lucks: annualLucks,
     monthly_lucks: (selectedAnnual?.monthlyLuck || []).map(mapMonthlyLuck),
-    daily_lucks: selectedDaily ? [mapDailyLuck(selectedDaily)] : [],
+    daily_lucks: dailyLucks.map(mapDailyLuck),
     fact_panel: mingliFactPanelToContract(buildMingliFactPanel([...timingInteractions, ...natalInteractions])),
     timing_interactions: timingInteractions.map(mingliInteractionToContract),
   };
+}
+
+export async function getBaziLuckDisplayBundle(userId: string, profileId: string) {
+  const profile = await getBaziProfileById(userId, profileId);
+  const chart = getChart(profile);
+  const dayMaster = chart.dayMaster || profile.day_master || '';
+  const majorCycles = (chart.majorCycles || []) as any[];
+
+  return {
+    profile_id: profile.id,
+    profile_updated_at: profile.updated_at || null,
+    cache_version: 'bazi_luck_display_bundle_v1',
+    generated_at: new Date().toISOString(),
+    chart: await getBaziChart(userId, profileId),
+    major_cycles: majorCycles.map((cycle, index) => {
+      const annualLuck = (cycle.annualLuck || []) as any[];
+      const timingInteractions = buildTimingMingliInteractions(chart, {
+        dayun: cycle,
+      });
+
+      return {
+        cycle: mapMajorCycle(cycle, index),
+        timing_interactions: timingInteractions.map(mingliInteractionToContract),
+        annual_lucks: annualLuck.map((annual: any) => {
+          const monthlyLuck = (annual.monthlyLuck || []) as any[];
+          const annualInteractions = buildTimingMingliInteractions(chart, {
+            dayun: cycle,
+            liunian: annual,
+          });
+
+          return {
+            annual: mapAnnualLuck(annual),
+            timing_interactions: annualInteractions.map(mingliInteractionToContract),
+            monthly_lucks: monthlyLuck.map((monthly: any) => {
+              const monthlyInteractions = buildTimingMingliInteractions(chart, {
+                dayun: cycle,
+                liunian: annual,
+                liuyue: monthly,
+              });
+              const dailyLucks = buildDailyLuckListForMonth(dayMaster, monthly, monthly.startDate);
+
+              return {
+                monthly: mapMonthlyLuck(monthly),
+                timing_interactions: monthlyInteractions.map(mingliInteractionToContract),
+                daily_lucks: dailyLucks.map(mapDailyLuck),
+              };
+            }),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function resolveSelectedDay(queryDay: string | undefined, requestedDay: string, selectedMonth: any): string {
+  if (queryDay) return queryDay;
+  if (isDayInMonthlyLuck(requestedDay, selectedMonth)) return requestedDay;
+  return selectedMonth?.startDate || requestedDay;
 }
 
 function selectMonthlyLuck(monthlyLuck: any[], month: number | undefined, day: string) {
@@ -694,6 +868,11 @@ function selectMonthlyLuck(monthlyLuck: any[], month: number | undefined, day: s
   if (byDate) return byDate;
   const gregorianMonth = Number(day.slice(5, 7));
   return monthlyLuck.find((item: any) => item.month === gregorianMonth) || null;
+}
+
+function isDayInMonthlyLuck(day: string, selectedMonth: any): boolean {
+  if (!selectedMonth?.startDate || !selectedMonth?.endDate) return true;
+  return day >= selectedMonth.startDate && day < selectedMonth.endDate;
 }
 
 function formatDateForLuck(date: Date): string {
@@ -792,12 +971,12 @@ function validateBaziInput(input: CreateBaziProfileInput): void {
   }
 
   // 时辰（可选）
-  if (input.birth_hour !== undefined && (input.birth_hour < 0 || input.birth_hour > 23)) {
+  if (input.birth_hour !== undefined && input.birth_hour !== null && (input.birth_hour < 0 || input.birth_hour > 23)) {
     throw new ValidationError('出生小时须在 0 到 23 之间');
   }
 
   // 分钟（可选）
-  if (input.birth_minute !== undefined && (input.birth_minute < 0 || input.birth_minute > 59)) {
+  if (input.birth_minute !== undefined && input.birth_minute !== null && (input.birth_minute < 0 || input.birth_minute > 59)) {
     throw new ValidationError('出生分钟须在 0 到 59 之间');
   }
 
@@ -808,19 +987,27 @@ function validateBaziInput(input: CreateBaziProfileInput): void {
   validateCoordinate(input.birth_latitude, '出生地纬度', -90, 90);
   validateCoordinate(input.birth_longitude, '出生地经度', -180, 180);
 
-  const hasClockTime = input.birth_hour !== undefined || input.birth_minute !== undefined;
-  if (hasClockTime && (input.birth_latitude === undefined || input.birth_longitude === undefined)) {
+  const hasClockTime = hasKnownBirthHour(input) || (input.birth_minute !== undefined && input.birth_minute !== null);
+  if (hasClockTime && (input.birth_latitude === undefined || input.birth_latitude === null || input.birth_longitude === undefined || input.birth_longitude === null)) {
     throw new ValidationError('出生地经纬度不能为空。真太阳时排盘需要前端提交出生地经纬度。');
   }
 }
 
-function validateCoordinate(value: number | undefined, label: string, min: number, max: number): void {
-  if (value === undefined) {
+function validateCoordinate(value: number | undefined | null, label: string, min: number, max: number): void {
+  if (value === undefined || value === null) {
     return;
   }
   if (!Number.isFinite(value) || value < min || value > max) {
     throw new ValidationError(`${label}必须在 ${min} 到 ${max} 之间`);
   }
+}
+
+function hasOwn<T extends object>(value: T, key: keyof T): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasKnownBirthHour(input: { birth_hour?: number | null }): input is { birth_hour: number } {
+  return input.birth_hour !== undefined && input.birth_hour !== null;
 }
 
 function isValidTimezone(timezone: string): boolean {

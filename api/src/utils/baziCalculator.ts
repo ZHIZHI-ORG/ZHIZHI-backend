@@ -14,6 +14,19 @@
 const { Solar, Lunar: LunarLib, LunarUtil } = require('lunar-javascript') as { Solar: any; Lunar: any; LunarUtil: any };
 
 import { calculateShenSha, FourPillars, ShenShaResult } from './shenShaCalculator';
+import { buildPatternCandidates, PatternCandidatesResult } from './patternJudgement';
+import { buildZipingAiBrief, buildZipingStructureFacts } from './zipingStructureFacts';
+import type { ZipingAiBriefResult } from './zipingStructureFacts';
+import {
+  BRANCH_CLASHES as CANONICAL_BRANCH_CLASHES,
+  BRANCH_HARMS as CANONICAL_BRANCH_HARMS,
+  BRANCH_PUNISHMENTS as CANONICAL_BRANCH_PUNISHMENTS,
+  BRANCH_SIX_COMBINATIONS as CANONICAL_BRANCH_SIX_COMBINATIONS,
+  BRANCH_THREE_HARMONIES as CANONICAL_BRANCH_THREE_HARMONIES,
+  BRANCH_THREE_MEETINGS as CANONICAL_BRANCH_THREE_MEETINGS,
+  STEM_COMBINATIONS as CANONICAL_STEM_COMBINATIONS,
+  buildCanonicalDerivedBranchRules,
+} from './ganZhiRelationRules';
 
 // ============================================================
 // 返回类型定义
@@ -52,7 +65,7 @@ export interface MajorCycleData {
   stem: string;       // 天干（如"乙"）
   branch: string;     // 地支（如"酉"）
   ganZhi: string;     // 干支（如"乙酉"）
-  tenGod: string;     // 天干十神（如"伤"）
+  tenGod: string;     // 天干十神（如"伤官"）
   hiddenStems: HiddenStemData[]; // 大运地支藏干
   lifecycle: string;  // 大运地支相对日主的十二长生
   selfSitting: string;// 大运天干坐地支
@@ -178,6 +191,12 @@ export interface FullChartResult {
   // 五行分析
   wuxing: WuxingAnalysis;
   weightedWuxing: WeightedWuxingAnalysis;
+
+  // 格局候选层（阶段一：只生成候选，不做成败救应终断）
+  patternCandidates: PatternCandidatesResult;
+
+  // 子平 AI 精简事实层（只输出几条事实材料，不做最终喜用忌裁决）
+  zipingAiBrief: ZipingAiBriefResult;
 
   // 大运信息
   startAge: number;           // 起运年龄
@@ -313,48 +332,13 @@ const MONTH_SEASON_STAGE: Record<string, Record<WuxingElement, number>> = {
   '丑': { 木: 0.95, 火: 0.85, 土: 1.18, 金: 1.0, 水: 1.05 },
 };
 
-export const BRANCH_CLASHES: Array<[string, string]> = [
-  ['子', '午'], ['丑', '未'], ['寅', '申'], ['卯', '酉'], ['辰', '戌'], ['巳', '亥'],
-];
-
-export const BRANCH_HARMS: Array<[string, string]> = [
-  ['子', '未'], ['丑', '午'], ['寅', '巳'], ['卯', '辰'], ['申', '亥'], ['酉', '戌'],
-];
-
-export const BRANCH_PUNISHMENTS: Array<[string, string]> = [
-  ['子', '卯'], ['寅', '巳'], ['巳', '申'], ['丑', '戌'], ['戌', '未'], ['丑', '未'],
-];
-
-export const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: WuxingElement }> = [
-  { branches: ['子', '丑'], element: '土' },
-  { branches: ['寅', '亥'], element: '木' },
-  { branches: ['卯', '戌'], element: '火' },
-  { branches: ['辰', '酉'], element: '金' },
-  { branches: ['巳', '申'], element: '水' },
-  { branches: ['午', '未'], element: '土' },
-];
-
-export const BRANCH_THREE_HARMONIES: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = [
-  { branches: ['申', '子', '辰'], element: '水', center: '子' },
-  { branches: ['亥', '卯', '未'], element: '木', center: '卯' },
-  { branches: ['寅', '午', '戌'], element: '火', center: '午' },
-  { branches: ['巳', '酉', '丑'], element: '金', center: '酉' },
-];
-
-export const BRANCH_THREE_MEETINGS: Array<{ branches: [string, string, string]; element: WuxingElement }> = [
-  { branches: ['寅', '卯', '辰'], element: '木' },
-  { branches: ['巳', '午', '未'], element: '火' },
-  { branches: ['申', '酉', '戌'], element: '金' },
-  { branches: ['亥', '子', '丑'], element: '水' },
-];
-
-export const STEM_COMBINATIONS: Array<{ stems: [string, string]; element: WuxingElement }> = [
-  { stems: ['甲', '己'], element: '土' },
-  { stems: ['乙', '庚'], element: '金' },
-  { stems: ['丙', '辛'], element: '水' },
-  { stems: ['丁', '壬'], element: '木' },
-  { stems: ['戊', '癸'], element: '火' },
-];
+export const BRANCH_CLASHES: Array<[string, string]> = CANONICAL_BRANCH_CLASHES;
+export const BRANCH_HARMS: Array<[string, string]> = CANONICAL_BRANCH_HARMS;
+export const BRANCH_PUNISHMENTS: Array<[string, string]> = CANONICAL_BRANCH_PUNISHMENTS;
+export const BRANCH_SIX_COMBINATIONS: Array<{ branches: [string, string]; element: WuxingElement }> = CANONICAL_BRANCH_SIX_COMBINATIONS;
+export const BRANCH_THREE_HARMONIES: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = CANONICAL_BRANCH_THREE_HARMONIES;
+export const BRANCH_THREE_MEETINGS: Array<{ branches: [string, string, string]; element: WuxingElement; center: string }> = CANONICAL_BRANCH_THREE_MEETINGS;
+export const STEM_COMBINATIONS: Array<{ stems: [string, string]; element: WuxingElement }> = CANONICAL_STEM_COMBINATIONS;
 
 const SHI_SHEN_ZHI: Record<string, string> = {
   '甲子': '正印', '甲丑': '正财', '甲寅': '比肩', '甲卯': '劫财', '甲辰': '偏财', '甲巳': '食神', '甲午': '伤官', '甲未': '正财', '甲申': '七杀', '甲酉': '正官', '甲戌': '偏财', '甲亥': '偏印',
@@ -367,19 +351,6 @@ const SHI_SHEN_ZHI: Record<string, string> = {
   '辛子': '食神', '辛丑': '偏印', '辛寅': '正财', '辛卯': '偏财', '辛辰': '正印', '辛巳': '正官', '辛午': '七杀', '辛未': '偏印', '辛申': '劫财', '辛酉': '比肩', '辛戌': '正印', '辛亥': '伤官',
   '壬子': '劫财', '壬丑': '正官', '壬寅': '食神', '壬卯': '伤官', '壬辰': '七杀', '壬巳': '偏财', '壬午': '正财', '壬未': '正官', '壬申': '偏印', '壬酉': '正印', '壬戌': '七杀', '壬亥': '比肩',
   '癸子': '比肩', '癸丑': '七杀', '癸寅': '伤官', '癸卯': '食神', '癸辰': '正官', '癸巳': '正财', '癸午': '偏财', '癸未': '七杀', '癸申': '正印', '癸酉': '偏印', '癸戌': '正官', '癸亥': '劫财',
-};
-
-const SHI_SHEN_SIMPLIFIED: Record<string, string> = {
-  '正印': '印',
-  '正官': '官',
-  '劫财': '劫',
-  '伤官': '伤',
-  '正财': '财',
-  '七杀': '杀',
-  '偏印': '枭',
-  '比肩': '比',
-  '食神': '食',
-  '偏财': '才',
 };
 
 // 主流排盘 app 常见的附加层口径：年干或日干查四柱地支。
@@ -582,13 +553,26 @@ export async function calculateFullChart(
   );
 
   // ── 步骤 6：计算五行分析 ────────────────────────────────────
-  const wuxing = calculateWuxing(yearGan, yearZhi, monthGan, monthZhi, dayGan, dayZhi, timeGan, timeZhi);
-  const weightedWuxing = calculateWeightedWuxingFromPillars({
+  const natalPillars = {
     year: yearPillar,
     month: monthPillar,
     day: dayPillar,
     time: timePillar,
-  }, dayGan);
+  };
+  const wuxing = calculateWuxing(yearGan, yearZhi, monthGan, monthZhi, dayGan, dayZhi, timeGan, timeZhi);
+  const weightedWuxing = calculateWeightedWuxingFromPillars(natalPillars, dayGan);
+  const patternCandidates = buildPatternCandidates({
+    dayMaster: dayGan,
+    ...natalPillars,
+    weightedWuxing,
+  });
+  const zipingStructureFacts = buildZipingStructureFacts({
+    dayMaster: dayGan,
+    dayMasterElement: GAN_WUXING[dayGan] || '',
+    ...natalPillars,
+    patternCandidates,
+  });
+  const zipingAiBrief = buildZipingAiBrief(zipingStructureFacts);
 
   // ── 步骤 7：计算大运 ────────────────────────────────────────
   const yun = bazi.getYun(gender, sect);
@@ -644,6 +628,8 @@ export async function calculateFullChart(
 
     wuxing,
     weightedWuxing,
+    patternCandidates,
+    zipingAiBrief,
 
     startAge,
     startDate,
@@ -1001,11 +987,10 @@ function addByOppositeBranchPairReference(
 }
 
 /**
- * 根据日主天干和目标天干，推算十神简称
+ * 根据日主天干和目标天干，推算十神全称
  */
 function getTenGod(dayGan: string, targetGan: string): string {
-  const fullName = getTenGodFull(dayGan, targetGan);
-  return SHI_SHEN_SIMPLIFIED[fullName] || fullName || '';
+  return getTenGodFull(dayGan, targetGan);
 }
 
 function getTenGodFull(dayGan: string, targetGan: string): string {
@@ -1039,8 +1024,7 @@ function getTenGodFull(dayGan: string, targetGan: string): string {
 }
 
 function getBranchTenGod(dayGan: string, targetZhi: string): string {
-  const fullName = SHI_SHEN_ZHI[dayGan + targetZhi] || '';
-  return SHI_SHEN_SIMPLIFIED[fullName] || fullName;
+  return SHI_SHEN_ZHI[dayGan + targetZhi] || '';
 }
 
 function buildLiuNianList(dayGan: string, daYun: any): AnnualLuckData[] {
@@ -1126,6 +1110,63 @@ export function buildDailyLuckData(dayGan: string, day: string): DailyLuckData {
     xun: lunar.getDayXun?.() || '',
     xunKong: lunar.getDayXunKong?.() || '',
   };
+}
+
+export function buildDailyLuckListForMonth(
+  dayGan: string,
+  monthlyLuck: Pick<MonthlyLuckData, 'startDate' | 'endDate'> | null | undefined,
+  selectedDay: string,
+): DailyLuckData[] {
+  return dailyLuckDateRange(monthlyLuck, selectedDay).map((day) => buildDailyLuckData(dayGan, day));
+}
+
+function dailyLuckDateRange(
+  monthlyLuck: Pick<MonthlyLuckData, 'startDate' | 'endDate'> | null | undefined,
+  selectedDay: string,
+): string[] {
+  const start = parseYmd(monthlyLuck?.startDate);
+  let end = parseYmd(monthlyLuck?.endDate);
+  if (start && end) {
+    if (end.getTime() <= start.getTime()) {
+      end = addUtcDays(end, 365);
+    }
+    const days = enumerateUtcDays(start, end, 45);
+    if (days.length > 0) return days;
+  }
+
+  const selected = parseYmd(selectedDay);
+  if (!selected) return [];
+  const monthStart = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth(), 1));
+  const nextMonth = new Date(Date.UTC(selected.getUTCFullYear(), selected.getUTCMonth() + 1, 1));
+  return enumerateUtcDays(monthStart, nextMonth, 31);
+}
+
+function parseYmd(value?: string | null): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+}
+
+function enumerateUtcDays(start: Date, endExclusive: Date, maxDays: number): string[] {
+  const days: string[] = [];
+  for (let cursor = new Date(start); cursor < endExclusive && days.length < maxDays; cursor = addUtcDays(cursor, 1)) {
+    days.push(formatUtcYmd(cursor));
+  }
+  return days;
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function formatUtcYmd(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getUTCDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -1398,27 +1439,18 @@ function applyBranchRelations(
   applyNegativeBranchPair(BRANCH_HARMS, 'branch_harm', 0.05, '六害轻微削弱相关地支藏干气势', pillars, branchItems, monthBranch, addContribution);
   applyNegativeBranchPair(BRANCH_PUNISHMENTS, 'branch_punishment', 0.04, '刑关系轻微削弱相关地支藏干气势', pillars, branchItems, monthBranch, addContribution);
 
-  BRANCH_THREE_MEETINGS.forEach((rule) => {
-    const matched = rule.branches.filter(branch => branches.includes(branch));
-    if (matched.length === 3) {
-      addContribution({
-        element: rule.element,
+	  BRANCH_THREE_MEETINGS.forEach((rule) => {
+	    const matched = rule.branches.filter(branch => branches.includes(branch));
+	    if (matched.length === 3) {
+	      addContribution({
+	        element: rule.element,
         score: sumBranchWeights(matched, branchItems) * 0.22 * seasonMultiplier(rule.element, monthBranch),
         source: 'three_meeting',
         note: `${rule.branches.join('')}三会${rule.element}局成势`,
-      });
-      applyBranchTransformationDrain(matched, rule.element, 'three_meeting_transform_drain', THREE_MEETING_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
-    } else {
-      const adjacentPair = findBestAdjacentBranchPair(rule.branches, branchItems);
-      if (!adjacentPair) return;
-      addContribution({
-        element: rule.element,
-        score: sumBranchItemWeights(adjacentPair) * 0.04 * seasonMultiplier(rule.element, monthBranch),
-        source: 'partial_three_meeting',
-        note: `${adjacentPair.map(item => item.branch).join('')}相邻半会${rule.element}气`,
-      });
-    }
-  });
+	      });
+	      applyBranchTransformationDrain(matched, rule.element, 'three_meeting_transform_drain', THREE_MEETING_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
+	    }
+	  });
 
   BRANCH_THREE_HARMONIES.forEach((rule) => {
     const matched = rule.branches.filter(branch => branches.includes(branch));
@@ -1428,18 +1460,23 @@ function applyBranchRelations(
         score: sumBranchWeights(matched, branchItems) * 0.18 * seasonMultiplier(rule.element, monthBranch),
         source: 'three_harmony',
         note: `${rule.branches.join('')}三合${rule.element}局成势`,
-      });
-      applyBranchTransformationDrain(matched, rule.element, 'three_harmony_transform_drain', THREE_HARMONY_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
-    } else {
-      const adjacentPair = findBestAdjacentBranchPair(rule.branches, branchItems, rule.center);
-      if (!adjacentPair) return;
-      addContribution({
-        element: rule.element,
-        score: sumBranchItemWeights(adjacentPair) * 0.05 * seasonMultiplier(rule.element, monthBranch),
-        source: 'partial_three_harmony',
-        note: `${adjacentPair.map(item => item.branch).join('')}相邻半合${rule.element}气`,
-      });
-    }
+	      });
+	      applyBranchTransformationDrain(matched, rule.element, 'three_harmony_transform_drain', THREE_HARMONY_TRANSFORM_DRAIN_RATIO, pillars, branchItems, monthBranch, addContribution);
+	    }
+	  });
+
+  buildCanonicalDerivedBranchRules().forEach((rule) => {
+    if (rule.relation !== 'branch_half_meeting' && rule.relation !== 'branch_half_harmony') return;
+    if (rule.groupBranches.every(branch => branches.includes(branch))) return;
+    const adjacentPair = findBestAdjacentBranchPair(rule.branches, branchItems);
+    if (!adjacentPair) return;
+    const isHalfMeeting = rule.relation === 'branch_half_meeting';
+    addContribution({
+      element: rule.element,
+      score: sumBranchItemWeights(adjacentPair) * (isHalfMeeting ? 0.04 : 0.05) * seasonMultiplier(rule.element, monthBranch),
+      source: isHalfMeeting ? 'partial_three_meeting' : 'partial_three_harmony',
+      note: `${adjacentPair.map(item => item.branch).join('')}相邻${isHalfMeeting ? '半会' : '半合'}${rule.element}气`,
+    });
   });
 
   BRANCH_SIX_COMBINATIONS.forEach((rule) => {

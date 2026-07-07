@@ -23,6 +23,7 @@ import baziByIdHandler from './bazi/[id]';
 import baziChartHandler from './bazi/[id]/chart';
 import baziLuckHandler from './bazi/[id]/luck';
 import baziLuckAnalysisHandler from './bazi/[id]/luck-analysis';
+import baziLuckBundleHandler from './bazi/[id]/luck-bundle';
 
 import fortuneDailyHandler from './fortune/daily';
 import fortuneDrilldownHandler from './fortune/drilldown';
@@ -104,6 +105,9 @@ function resolveRoute(pathname: string): { handler?: Handler; params: Record<str
       }
       if (child === 'luck-analysis') {
         return { handler: baziLuckAnalysisHandler, params: { id } };
+      }
+      if (child === 'luck-bundle') {
+        return { handler: baziLuckBundleHandler, params: { id } };
       }
       if (!child) {
         return { handler: baziByIdHandler, params: { id } };

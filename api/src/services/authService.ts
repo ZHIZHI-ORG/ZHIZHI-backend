@@ -24,12 +24,17 @@
  *   Handler → authService → { supabase.auth, userRepository, inviteCodeService }
  */
 
-import { supabase, createServiceSupabaseClient, createUserSupabaseClient } from '../database/supabase';
+import {
+  supabase,
+  createServiceSupabaseClient,
+  createUserSupabaseClient,
+  fetchSupabaseAuth,
+} from '../database/supabase';
 import { userRepository } from '../database/repositories/UserRepository';
 import { getValidInviteCode, consumeInviteCode } from './inviteCodeService';
 import { isInviteCodeRequired } from '../config/auth';
 import { validateEmail, validatePassword } from '../utils/validation';
-import { UnauthorizedError, ValidationError, NotFoundError } from '../utils/errors';
+import { UnauthorizedError, ValidationError, NotFoundError, ServiceUnavailableError } from '../utils/errors';
 import { LoginResponse, RefreshTokenResponse, User } from '../models/User';
 import { InviteCode } from '../models/InviteCode';
 
@@ -117,6 +122,48 @@ async function resolveInviteCodeForRegistration(
   }
 }
 
+function isSupabaseUpstreamUnavailable(error: unknown): boolean {
+  const candidate = error as { name?: string; message?: string; status?: number } | null | undefined;
+  const message = String(candidate?.message || '').toLowerCase();
+
+  return (
+    candidate?.name === 'AuthRetryableFetchError' ||
+    candidate?.status === 0 ||
+    message.includes('fetch failed') ||
+    message.includes('network') ||
+    message.includes('timeout') ||
+    message.includes('abort')
+  );
+}
+
+function throwIfAuthUpstreamUnavailable(error: unknown, operation: string): void {
+  if (!isSupabaseUpstreamUnavailable(error)) {
+    return;
+  }
+
+  const candidate = error as { name?: string; message?: string; status?: number };
+  console.error(`[认证] Supabase Auth 上游不可达 (${operation})`, {
+    name: candidate.name,
+    status: candidate.status,
+    message: candidate.message,
+  });
+  throw new ServiceUnavailableError('认证服务暂时不可用，请稍后重试');
+}
+
+async function readSupabaseAuthError(response: Response): Promise<string> {
+  try {
+    const body = await response.json() as {
+      msg?: string;
+      message?: string;
+      error?: string;
+      error_description?: string;
+    };
+    return body.message || body.msg || body.error_description || body.error || response.statusText;
+  } catch {
+    return response.statusText;
+  }
+}
+
 
 // ─────────────────────────────────────────────────────────────
 // 1. 发送验证码
@@ -155,6 +202,7 @@ export async function sendVerificationCode(input: SendCodeInput): Promise<void> 
   });
 
   if (error) {
+    throwIfAuthUpstreamUnavailable(error, 'send-code');
     // 最常见的错误：60 秒内重复发送被限流
     if (error.message.toLowerCase().includes('rate limit')) {
       throw new ValidationError('发送过于频繁，请 60 秒后再试');
@@ -211,6 +259,9 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
   });
 
   if (otpError || !authData.user || !authData.session) {
+    if (otpError) {
+      throwIfAuthUpstreamUnavailable(otpError, 'register-verify-otp');
+    }
     throw new ValidationError('验证码错误或已过期，请重新获取');
   }
 
@@ -279,6 +330,9 @@ export async function loginWithPassword(input: PasswordLoginInput): Promise<Logi
   });
 
   if (error || !authData.user || !authData.session) {
+    if (error) {
+      throwIfAuthUpstreamUnavailable(error, 'password-login');
+    }
     // 不区分"邮箱不存在"和"密码错误"，统一返回模糊提示（安全最佳实践）
     throw new UnauthorizedError('邮箱或密码错误');
   }
@@ -333,6 +387,9 @@ export async function loginWithCode(input: CodeLoginInput): Promise<LoginRespons
   });
 
   if (error || !authData.user || !authData.session) {
+    if (error) {
+      throwIfAuthUpstreamUnavailable(error, 'code-login');
+    }
     throw new ValidationError('验证码错误或已过期，请重新获取');
   }
 
@@ -393,6 +450,9 @@ export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginR
   });
 
   if (authError || !authData.user || !authData.session) {
+    if (authError) {
+      throwIfAuthUpstreamUnavailable(authError, 'social-login');
+    }
     throw new UnauthorizedError(`第三方登录失败: ${authError?.message || '无效的 token'}`);
   }
 
@@ -494,6 +554,9 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   });
 
   if (otpError || !otpData.session) {
+    if (otpError) {
+      throwIfAuthUpstreamUnavailable(otpError, 'reset-password-verify-otp');
+    }
     throw new ValidationError('验证码错误或已过期');
   }
 
@@ -504,6 +567,7 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
   });
 
   if (updateError) {
+    throwIfAuthUpstreamUnavailable(updateError, 'reset-password-update-user');
     throw new Error(`密码更新失败: ${updateError.message}`);
   }
 }
@@ -524,18 +588,46 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
  * @returns RefreshTokenResponse - { access_token, refresh_token }
  */
 export async function refreshAccessToken(input: RefreshTokenInput): Promise<RefreshTokenResponse> {
-  const authClient = createServiceSupabaseClient();
-  const { data, error } = await authClient.auth.refreshSession({
-    refresh_token: input.refresh_token,
-  });
+  let response: Response;
 
-  if (error || !data.session) {
+  try {
+    response = await fetchSupabaseAuth('/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json;charset=UTF-8',
+      },
+      body: JSON.stringify({ refresh_token: input.refresh_token }),
+    });
+  } catch (error) {
+    console.error('[认证] Supabase Auth 上游不可达 (refresh-token)', error);
+    throw new ServiceUnavailableError('认证服务暂时不可用，请稍后重试');
+  }
+
+  if (response.status >= 500) {
+    const message = await readSupabaseAuthError(response);
+    console.error('[认证] Supabase Auth 刷新 Token 返回上游错误', {
+      status: response.status,
+      message,
+    });
+    throw new ServiceUnavailableError('认证服务暂时不可用，请稍后重试');
+  }
+
+  if (!response.ok) {
+    throw new UnauthorizedError('登录状态已过期，请重新登录');
+  }
+
+  const data = await response.json() as {
+    access_token?: string;
+    refresh_token?: string;
+  };
+
+  if (!data.access_token || !data.refresh_token) {
     throw new UnauthorizedError('登录状态已过期，请重新登录');
   }
 
   return {
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
   };
 }
 
@@ -615,6 +707,9 @@ export async function verifyToken(token: string): Promise<User> {
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data.user) {
+    if (error) {
+      throwIfAuthUpstreamUnavailable(error, 'verify-token');
+    }
     throw new UnauthorizedError('无效的访问令牌，请重新登录');
   }
 

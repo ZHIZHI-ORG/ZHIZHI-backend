@@ -42,8 +42,8 @@ export interface BaziProfile {
   birth_year: number;
   birth_month: number;
   birth_day: number;
-  birth_hour?: number;
-  birth_minute?: number;
+  birth_hour?: number | null;
+  birth_minute?: number | null;
   is_lunar: boolean; // 是否农历
   birth_timezone: string; // 时区
 
@@ -54,8 +54,8 @@ export interface BaziProfile {
   bazi_month_branch?: string;
   bazi_day_stem?: string;
   bazi_day_branch?: string;
-  bazi_hour_stem?: string;
-  bazi_hour_branch?: string;
+  bazi_hour_stem?: string | null;
+  bazi_hour_branch?: string | null;
 
   // 五行分析
   wuxing_analysis?: WuxingAnalysis;
@@ -73,8 +73,8 @@ export interface BaziProfile {
   birth_latitude?: number;  // 出生地纬度
   birth_longitude?: number; // 出生地经度
   time_basis?: 'standard_time' | 'true_solar_time'; // 排盘时间基准
-  true_solar_time?: string; // 后端校准后的真太阳时
-  true_solar_correction_minutes?: number; // 真太阳时总校正分钟数
+  true_solar_time?: string | null; // 后端校准后的真太阳时
+  true_solar_correction_minutes?: number | null; // 真太阳时总校正分钟数
   calculation_metadata?: any; // 排盘校准元信息
   mbti?: string;           // MBTI 类型
 
@@ -100,8 +100,8 @@ export interface CreateBaziProfileInput {
   birth_year: number;
   birth_month: number;
   birth_day: number;
-  birth_hour?: number;
-  birth_minute?: number;
+  birth_hour?: number | null;
+  birth_minute?: number | null;
   is_lunar?: boolean;        // 默认 false（公历）
   birth_timezone?: string;   // 默认 'Asia/Shanghai'
 
@@ -126,8 +126,8 @@ export interface UpdateBaziProfileInput {
   birth_year?: number;
   birth_month?: number;
   birth_day?: number;
-  birth_hour?: number;
-  birth_minute?: number;
+  birth_hour?: number | null;
+  birth_minute?: number | null;
   is_lunar?: boolean;
   birth_timezone?: string;
   birth_country?: string;
@@ -135,8 +135,8 @@ export interface UpdateBaziProfileInput {
   birth_latitude?: number;
   birth_longitude?: number;
   time_basis?: 'standard_time' | 'true_solar_time';
-  true_solar_time?: string;
-  true_solar_correction_minutes?: number;
+  true_solar_time?: string | null;
+  true_solar_correction_minutes?: number | null;
   calculation_metadata?: any;
   mbti?: string;
   bazi_year_stem?: string;
@@ -145,8 +145,8 @@ export interface UpdateBaziProfileInput {
   bazi_month_branch?: string;
   bazi_day_stem?: string;
   bazi_day_branch?: string;
-  bazi_hour_stem?: string;
-  bazi_hour_branch?: string;
+  bazi_hour_stem?: string | null;
+  bazi_hour_branch?: string | null;
   wuxing_analysis?: WuxingAnalysis;
   full_chart?: any;
   day_master?: string;

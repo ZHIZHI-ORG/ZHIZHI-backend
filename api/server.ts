@@ -45,6 +45,7 @@ import baziByIdHandler   from './api/bazi/[id]';
 import baziChartHandler  from './api/bazi/[id]/chart';
 import baziLuckHandler   from './api/bazi/[id]/luck';
 import baziLuckAnalysisHandler from './api/bazi/[id]/luck-analysis';
+import baziLuckBundleHandler from './api/bazi/[id]/luck-bundle';
 
 // 运势模块（对应 simple.md §5 首页模块）
 import fortuneDailyHandler from './api/fortune/daily';
@@ -149,6 +150,8 @@ const server = http.createServer(async (req, res) => {
         handler = baziLuckHandler;
       } else if (child === 'luck-analysis') {
         handler = baziLuckAnalysisHandler;
+      } else if (child === 'luck-bundle') {
+        handler = baziLuckBundleHandler;
       } else if (!child) {
         handler = baziByIdHandler;
       }

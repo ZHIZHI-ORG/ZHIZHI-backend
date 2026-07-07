@@ -6,6 +6,7 @@ const {
 
 const {
   buildMingliFactPanel,
+  buildMingliGanZhiEffectsBrief,
   buildNatalMingliInteractions,
   buildTimingMingliInteractions,
   isStemControlClash,
@@ -37,7 +38,137 @@ function assertSameSet(actual: string[], expected: string[], message: string): v
   assert.deepEqual([...actual].sort(), [...expected].sort(), message);
 }
 
+function assertIncludesAll(actual: string[], expected: string[], message: string): void {
+  const missing = expected.filter(label => !actual.includes(label));
+  assert.deepEqual(missing, [], message);
+}
+
+function chartWithBranches(left: string, right: string) {
+  return {
+    year: pillar('甲', left),
+    month: pillar('乙', right),
+    day: pillar('丙', '辰', '日主'),
+    time: pillar('丁', '酉'),
+  };
+}
+
+function chartWithStems(left: string, right: string) {
+  return {
+    year: pillar(left, '子'),
+    month: pillar(right, '丑'),
+    day: pillar('丙', '辰', '日主'),
+    time: pillar('丁', '酉'),
+  };
+}
+
 async function main(): Promise<void> {
+  [
+    ['甲', '己', '甲己合土'],
+    ['乙', '庚', '乙庚合金'],
+    ['丙', '辛', '丙辛合水'],
+    ['丁', '壬', '丁壬合木'],
+    ['戊', '癸', '戊癸合火'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithStems(left, right)));
+    assert.ok(panel.heavenlyStemNatal.includes(label), `应识别天干五合：${label}`);
+  });
+
+  [
+    ['甲', '戊', '甲克戊'],
+    ['乙', '己', '乙克己'],
+    ['丙', '庚', '丙克庚'],
+    ['丁', '辛', '丁克辛'],
+    ['戊', '壬', '戊克壬'],
+    ['己', '癸', '己克癸'],
+    ['甲', '庚', '庚克甲'],
+    ['乙', '辛', '辛克乙'],
+    ['丙', '壬', '壬克丙'],
+    ['丁', '癸', '癸克丁'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithStems(left, right)));
+    assert.ok(panel.heavenlyStemNatal.includes(label), `应识别天干同阴阳相克：${label}`);
+  });
+
+  [
+    ['子', '丑', '子丑六合土'],
+    ['寅', '亥', '寅亥六合木'],
+    ['卯', '戌', '卯戌六合火'],
+    ['辰', '酉', '辰酉六合金'],
+    ['巳', '申', '巳申六合水'],
+    ['午', '未', '午未六合土'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支六合：${label}`);
+  });
+
+  [
+    ['子', '午', '子午相冲'],
+    ['丑', '未', '丑未相冲'],
+    ['寅', '申', '寅申相冲'],
+    ['卯', '酉', '卯酉相冲'],
+    ['辰', '戌', '辰戌相冲'],
+    ['巳', '亥', '巳亥相冲'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支六冲：${label}`);
+  });
+
+  [
+    ['子', '未', '子未相害'],
+    ['丑', '午', '丑午相害'],
+    ['寅', '巳', '寅巳相害'],
+    ['卯', '辰', '卯辰相害'],
+    ['申', '亥', '申亥相害'],
+    ['酉', '戌', '酉戌相害'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支六害：${label}`);
+  });
+
+  [
+    ['子', '酉', '子酉相破'],
+    ['卯', '午', '卯午相破'],
+    ['辰', '丑', '辰丑相破'],
+    ['寅', '亥', '寅亥相破'],
+    ['巳', '申', '巳申相破'],
+    ['未', '戌', '未戌相破'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支六破：${label}`);
+  });
+
+  [
+    ['子', '卯', '子卯相刑'],
+    ['寅', '巳', '寅刑巳'],
+    ['巳', '申', '巳刑申'],
+    ['申', '寅', '申刑寅'],
+    ['丑', '戌', '丑刑戌'],
+    ['戌', '未', '戌刑未'],
+    ['丑', '未', '丑刑未'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支刑：${label}`);
+  });
+
+  ['辰', '午', '酉', '亥'].forEach((branch) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(branch, branch)));
+    assert.ok(panel.earthlyBranchNatal.includes(`${branch}${branch}自刑`), `应识别地支自刑：${branch}${branch}自刑`);
+  });
+
+  [
+    ['寅', '丑', '寅丑暗合'],
+    ['卯', '申', '卯申暗合'],
+    ['巳', '酉', '巳酉暗合'],
+    ['午', '亥', '午亥暗合'],
+    ['子', '巳', '子巳暗合'],
+    ['寅', '午', '寅午暗合'],
+  ].forEach(([left, right, label]) => {
+    const panel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches(left, right)));
+    assert.ok(panel.earthlyBranchNatal.includes(label), `应识别地支暗合：${label}`);
+  });
+  const unmatchedHiddenCombinationPanel = buildMingliFactPanel(buildNatalMingliInteractions(chartWithBranches('寅', '辰')));
+  assert.ok(!unmatchedHiddenCombinationPanel.earthlyBranchNatal.includes('寅丑暗合'), '未见丑时不应展示寅丑暗合');
+
   const denseChart = {
     year: pillar('甲', '巳'),
     month: pillar('己', '申'),
@@ -147,9 +278,9 @@ async function main(): Promise<void> {
   assert.ok(
     hasRelation(archMeetingInteractions, 'branch_arch_meeting', (item) =>
       item.factLabel === '寅木辰土拱会卯木' &&
-      item.shortLabel === '寅辰拱会卯' &&
+      item.shortLabel === '寅辰拱会木局' &&
       item.missingBranch === '卯'),
-    '应识别寅辰拱会卯'
+    '应识别寅辰拱会木局'
   );
 
   const timingChart = {
@@ -231,8 +362,8 @@ async function main(): Promise<void> {
     }),
     ...buildNatalMingliInteractions(appCaseOneChart),
   ]);
-  assertSameSet(appCaseOnePanel.heavenlyStemLuck, ['甲克戊', '丙克庚', '戊癸合化火'], '案例1天干运势应对齐目标细盘口径');
-  assertSameSet(appCaseOnePanel.earthlyBranchLuck, ['寅刑巳', '午刑午', '子午相冲', '寅巳相害', '寅午戌三合火', '寅午暗合', '子巳暗合', '子巳暗会'], '案例1地支运势应对齐目标细盘口径');
+  assertSameSet(appCaseOnePanel.heavenlyStemLuck, ['甲克戊', '丙克庚', '戊癸合火', '癸克丙'], '案例1天干运势应对齐目标细盘口径');
+  assertSameSet(appCaseOnePanel.earthlyBranchLuck, ['寅刑巳', '午午自刑', '子午相冲', '寅巳相害', '寅午戌三合火', '巳午半会火', '寅午暗合', '子巳暗合', '子巳暗会'], '案例1地支运势应对齐目标细盘口径');
   assertSameSet(appCaseOnePanel.heavenlyStemNatal, ['丙克庚', '庚克甲'], '案例1天干本命应对齐目标细盘口径');
   assertSameSet(appCaseOnePanel.earthlyBranchNatal, ['子午相冲', '寅午半合火局', '寅午暗合'], '案例1地支本命应对齐目标细盘口径');
 
@@ -249,10 +380,10 @@ async function main(): Promise<void> {
     }),
     ...buildNatalMingliInteractions(appCaseTwoChart),
   ]);
-  assertSameSet(appCaseTwoPanel.heavenlyStemLuck, ['丁克辛', '丙辛合化水'], '案例2天干运势应对齐目标细盘口径');
-  assertSameSet(appCaseTwoPanel.earthlyBranchLuck, ['午刑午', '辰酉合化金', '午未合化土', '巳午未会南方火局', '巳酉半合金局', '巳酉暗合'], '案例2地支运势应对齐目标细盘口径');
-  assertSameSet(appCaseTwoPanel.heavenlyStemNatal, ['甲克戊', '甲己合化土'], '案例2天干本命应对齐目标细盘口径');
-  assertSameSet(appCaseTwoPanel.earthlyBranchNatal, ['午未合化土', '巳午未会南方火局', '未辰暗会'], '案例2地支本命应对齐目标细盘口径');
+  assertSameSet(appCaseTwoPanel.heavenlyStemLuck, ['丁克辛', '丙辛合水'], '案例2天干运势应对齐目标细盘口径');
+  assertSameSet(appCaseTwoPanel.earthlyBranchLuck, ['午午自刑', '辰酉六合金', '午未六合土', '巳午未会南方火局', '巳酉半合金局', '巳酉暗合'], '案例2地支运势应对齐目标细盘口径');
+  assertSameSet(appCaseTwoPanel.heavenlyStemNatal, ['甲克戊', '甲己合土', '辛克甲'], '案例2天干本命应对齐目标细盘口径');
+  assertSameSet(appCaseTwoPanel.earthlyBranchNatal, ['午未六合土', '巳午未会南方火局', '未辰暗会'], '案例2地支本命应对齐目标细盘口径');
 
   const appCaseThreeChart = {
     year: pillar('丙', '子'),
@@ -269,9 +400,9 @@ async function main(): Promise<void> {
     ...buildNatalMingliInteractions(appCaseThreeChart),
   ]);
   assertSameSet(appCaseThreePanel.heavenlyStemLuck, ['甲克戊'], '案例3天干运势应对齐目标细盘口径');
-  assertSameSet(appCaseThreePanel.earthlyBranchLuck, ['午刑午', '子午相冲', '卯戌合化火', '酉戌相害', '卯午相破', '申酉戌会西方金局', '午戌半合火局'], '案例3地支运势应对齐目标细盘口径');
+  assertSameSet(appCaseThreePanel.earthlyBranchLuck, ['午午自刑', '子午相冲', '卯戌六合火', '酉戌相害', '卯午相破', '申酉戌会西方金局', '午戌半合火局'], '案例3地支运势应对齐目标细盘口径');
   assertSameSet(appCaseThreePanel.heavenlyStemNatal, [], '案例3天干本命应对齐目标细盘口径');
-  assertSameSet(appCaseThreePanel.earthlyBranchNatal, ['子刑卯', '卯酉相冲', '子酉相破', '申子半合水局', '卯申暗合', '卯申暗会'], '案例3地支本命应对齐目标细盘口径');
+  assertSameSet(appCaseThreePanel.earthlyBranchNatal, ['子卯相刑', '卯酉相冲', '子酉相破', '申子半合水局', '申酉半会金', '卯申暗合', '卯申暗会'], '案例3地支本命应对齐目标细盘口径');
 
   const appCaseFourChart = {
     year: pillar('庚', '辰'),
@@ -286,10 +417,60 @@ async function main(): Promise<void> {
     }),
     ...buildNatalMingliInteractions(appCaseFourChart),
   ]);
-  assertSameSet(appCaseFourPanel.heavenlyStemLuck, ['丙克庚', '己克癸', '壬克丙'], '案例4天干运势应对齐目标细盘口径');
-  assertSameSet(appCaseFourPanel.earthlyBranchLuck, ['午刑午', '午未合化土', '卯辰相害', '卯午相破', '卯未半合木局', '卯未见壬暗合木局'], '案例4地支运势应对齐目标细盘口径');
-  assertSameSet(appCaseFourPanel.heavenlyStemNatal, ['己克癸'], '案例4天干本命应对齐目标细盘口径');
-  assertSameSet(appCaseFourPanel.earthlyBranchNatal, ['午未合化土', '卯辰相害', '卯午相破', '卯未半合木局', '卯未见壬暗合木局', '未辰暗会'], '案例4地支本命应对齐目标细盘口径');
+  assertSameSet(appCaseFourPanel.heavenlyStemLuck, ['丙克庚', '己克癸', '壬克丙', '癸克丙', '己克壬'], '案例4天干运势应对齐目标细盘口径');
+  assertSameSet(appCaseFourPanel.earthlyBranchLuck, ['午午自刑', '午未六合土', '卯辰相害', '卯午相破', '卯未半合木局', '午未半会火', '卯辰半会木', '卯未见壬暗合木局'], '案例4地支运势应对齐目标细盘口径');
+  assertSameSet(appCaseFourPanel.heavenlyStemNatal, ['己克癸', '己克壬'], '案例4天干本命应对齐目标细盘口径');
+  assertSameSet(appCaseFourPanel.earthlyBranchNatal, ['午未六合土', '卯辰相害', '卯午相破', '卯未半合木局', '午未半会火', '卯辰半会木', '卯未见壬暗合木局', '未辰暗会'], '案例4地支本命应对齐目标细盘口径');
+
+  const xiaonandouGengziChart = {
+    year: pillar('乙', '亥'),
+    month: pillar('丙', '戌'),
+    day: pillar('庚', '子', '日主'),
+    time: pillar('丁', '亥'),
+  };
+  const xiaonandouNatal = buildNatalMingliInteractions(xiaonandouGengziChart);
+  assert.deepEqual(
+    buildMingliGanZhiEffectsBrief(xiaonandouNatal),
+    {
+      heavenly_stems: ['乙庚合金', '丁克庚', '丙克庚'],
+      earthly_branches: ['亥子半会水', '亥亥自刑'],
+    },
+    'Ziping brief 干支摘要应直接消费命理事实层本命 interaction'
+  );
+  const xiaonandouCaseOnePanel = buildMingliFactPanel([
+    ...buildTimingMingliInteractions(xiaonandouGengziChart, {
+      dayun: { stem: '戊', branch: '寅', ganZhi: '戊寅' },
+      liunian: { stem: '乙', branch: '未', ganZhi: '乙未' },
+      liuyue: { stem: '甲', branch: '申', ganZhi: '甲申' },
+    }),
+    ...xiaonandouNatal,
+  ]);
+  assertIncludesAll(xiaonandouCaseOnePanel.heavenlyStemLuck, ['甲克戊', '庚克甲', '乙庚合金'], '小南斗1995庚子案例1天干运势不能漏项');
+  assertIncludesAll(
+    xiaonandouCaseOnePanel.earthlyBranchLuck,
+    ['申刑寅', '戌刑未', '寅申相冲', '寅亥六合木', '子未相害', '申亥相害', '未戌相破', '寅亥相破', '申戌拱会金局', '申子半合水局', '寅戌拱合午', '亥未拱合卯', '亥未见乙暗合木局', '寅戌见丁暗合火局'],
+    '小南斗1995庚子案例1地支运势不能漏项'
+  );
+  assertSameSet(xiaonandouCaseOnePanel.heavenlyStemNatal, ['乙庚合金', '丙克庚', '丁克庚'], '小南斗1995庚子案例1天干本命应对齐');
+  assertSameSet(xiaonandouCaseOnePanel.earthlyBranchNatal, ['亥子半会水', '亥亥自刑'], '小南斗1995庚子案例1地支本命应对齐');
+
+  const xiaonandouCaseTwoPanel = buildMingliFactPanel([
+    ...buildTimingMingliInteractions(xiaonandouGengziChart, {
+      dayun: { stem: '癸', branch: '未', ganZhi: '癸未' },
+      liunian: { stem: '丙', branch: '午', ganZhi: '丙午' },
+      liuyue: { stem: '辛', branch: '卯', ganZhi: '辛卯' },
+    }),
+    ...xiaonandouNatal,
+  ]);
+  assertIncludesAll(xiaonandouCaseTwoPanel.heavenlyStemLuck, ['丙克庚', '丁克辛', '辛克乙', '癸克丁', '丙辛合水'], '小南斗1995庚子案例2天干运势不能漏项');
+  assertIncludesAll(
+    xiaonandouCaseTwoPanel.earthlyBranchLuck,
+    ['戌刑未', '子卯相刑', '子午相冲', '卯戌六合火', '午未六合土', '子未相害', '未戌相破', '亥卯未三合木', '午戌半合火局', '亥未见乙暗合木局', '午未半会火', '午亥暗合', '午亥暗会'],
+    '小南斗1995庚子案例2地支运势不能漏项'
+  );
+  assert.ok(xiaonandouCaseTwoPanel.earthlyBranchLuck.includes('卯午相破'), '完整规则应额外识别卯午相破');
+  assertSameSet(xiaonandouCaseTwoPanel.heavenlyStemNatal, ['乙庚合金', '丙克庚', '丁克庚'], '小南斗1995庚子案例2天干本命应对齐');
+  assertSameSet(xiaonandouCaseTwoPanel.earthlyBranchNatal, ['亥子半会水', '亥亥自刑'], '小南斗1995庚子案例2地支本命应对齐');
 
   const mixedGroupInteractions = buildTimingMingliInteractions({
     year: pillar('庚', '亥'),

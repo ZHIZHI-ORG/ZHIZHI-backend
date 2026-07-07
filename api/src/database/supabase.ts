@@ -5,11 +5,64 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 环境变量配置
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || '';
+const supabaseUrl = cleanEnvValue(process.env.SUPABASE_URL || '');
+const supabaseAnonKey = cleanEnvValue(process.env.SUPABASE_ANON_KEY || '');
+const supabaseServiceKey = cleanEnvValue(process.env.SUPABASE_SERVICE_KEY || '');
+const supabaseRequestTimeoutMs = Number(process.env.SUPABASE_REQUEST_TIMEOUT_MS || 5000);
 
 if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('缺少 Supabase 环境变量配置，请检查 .env 文件');
+}
+
+function cleanEnvValue(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '');
+}
+
+type FetchInput = Parameters<typeof fetch>[0];
+type FetchInit = Parameters<typeof fetch>[1];
+
+export async function fetchWithTimeout(
+  input: FetchInput,
+  init: FetchInit = {},
+  timeoutMs: number = supabaseRequestTimeoutMs,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (init?.signal) {
+    if (init.signal.aborted) {
+      controller.abort();
+    } else {
+      init.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchSupabaseAuth(path: string, init: FetchInit = {}): Promise<Response> {
+  const authKey = supabaseAnonKey || supabaseServiceKey;
+  const url = new URL(path.replace(/^\//, ''), `${supabaseUrl.replace(/\/$/, '')}/auth/v1/`);
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has('apikey')) {
+    headers.set('apikey', authKey);
+  }
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${authKey}`);
+  }
+
+  return fetchWithTimeout(url, {
+    ...init,
+    headers,
+  });
 }
 
 /**
@@ -21,6 +74,9 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseServic
   auth: {
     autoRefreshToken: false,
     persistSession: false,
+  },
+  global: {
+    fetch: fetchWithTimeout,
   },
 });
 
@@ -34,6 +90,9 @@ export function createServiceSupabaseClient(): SupabaseClient {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      fetch: fetchWithTimeout,
+    },
   });
 }
 
@@ -43,8 +102,9 @@ export function createServiceSupabaseClient(): SupabaseClient {
  * @param userToken - 用户的 JWT token
  */
 export function createUserSupabaseClient(userToken: string): SupabaseClient {
-  return createClient(supabaseUrl, process.env.SUPABASE_ANON_KEY || '', {
+  return createClient(supabaseUrl, supabaseAnonKey, {
     global: {
+      fetch: fetchWithTimeout,
       headers: {
         Authorization: `Bearer ${userToken}`,
       },
@@ -59,7 +119,7 @@ export function createUserSupabaseClient(userToken: string): SupabaseClient {
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {
     // 查询 users 表（项目实际使用的表，非 Supabase 默认的 profiles 表）
-    const { error } = await supabase.from('users').select('count').limit(1);
+    const { error } = await supabase.from('users').select('id').limit(1);
     return !error;
   } catch (error) {
     console.error('数据库健康检查失败:', error);

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   calculateFullChart,
   calculateWeightedWuxingFromChart,
+  buildDailyLuckListForMonth,
   ensureChartLuckMetadata,
 } = require('../src/utils/baziCalculator.ts');
 
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   assert.equal(chart1995.majorCycles[1].lifecycle, '帝旺', '大运星运应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].selfSitting, '绝', '大运自坐应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].naYin, '泉中水', '大运纳音应随接口返回给前端');
+  assertFullTenGodDisplay(chart1995.majorCycles[1].tenGod, '大运十神应返回全称');
   assert.deepEqual(
     chart1995.majorCycles[1].annualLuck[0].hiddenStems,
     [{ stem: '辛', tenGod: '劫财', element: '金' }],
@@ -24,6 +26,8 @@ async function main(): Promise<void> {
   assert.equal(chart1995.majorCycles[1].annualLuck[0].lifecycle, '帝旺', '流年星运应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].selfSitting, '绝', '流年自坐应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].naYin, '泉中水', '流年纳音应随接口返回给前端');
+  assertFullTenGodDisplay(chart1995.majorCycles[1].annualLuck[0].tenGodTop, '流年天干十神应返回全称');
+  assertFullTenGodDisplay(chart1995.majorCycles[1].annualLuck[0].tenGodBottom, '流年地支主气十神应返回全称');
   assert.deepEqual(
     chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].hiddenStems,
     [
@@ -36,6 +40,22 @@ async function main(): Promise<void> {
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].lifecycle, '绝', '流月星运应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].selfSitting, '长生', '流月自坐应随接口返回给前端');
   assert.equal(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].naYin, '城头土', '流月纳音应随接口返回给前端');
+  assertFullTenGodDisplay(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].tenGod, '流月天干十神应返回全称');
+  assertFullTenGodDisplay(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].tenGodBottom, '流月地支主气十神应返回全称');
+  const dailyLuckForMonth = buildDailyLuckListForMonth(
+    chart1995.dayMaster,
+    chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0],
+    chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].startDate
+  );
+  assert.ok(dailyLuckForMonth.length > 1, '流日列表应按选中流月返回整段日期，而不是只返回 selected_day 一天');
+  assert.equal(dailyLuckForMonth[0].date, chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].startDate);
+  assert.equal(
+    dailyLuckForMonth[dailyLuckForMonth.length - 1].date,
+    previousYmd(chart1995.majorCycles[1].annualLuck[0].monthlyLuck[0].endDate),
+    '流日列表应覆盖到下一流月开始日前一天'
+  );
+  assertFullTenGodDisplay(dailyLuckForMonth[0].tenGodTop, '流日天干十神应返回全称');
+  assertFullTenGodDisplay(dailyLuckForMonth[0].tenGodBottom, '流日地支主气十神应返回全称');
 
   const legacyChart = JSON.parse(JSON.stringify(chart1995));
   const legacyCycle = legacyChart.majorCycles[1];
@@ -159,3 +179,21 @@ main().catch((error: Error) => {
   console.error(error);
   process.exit(1);
 });
+
+function previousYmd(value: string): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getUTCDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function assertFullTenGodDisplay(value: string, message: string): void {
+  const fullNames = new Set(['比肩', '劫财', '食神', '伤官', '偏财', '正财', '七杀', '正官', '偏印', '正印']);
+  const parts = value.split('\n').filter(Boolean);
+  assert.ok(parts.length > 0, message);
+  for (const part of parts) {
+    assert.ok(fullNames.has(part), `${message}，实际为 ${value}`);
+  }
+}

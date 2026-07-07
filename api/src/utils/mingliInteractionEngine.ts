@@ -17,6 +17,7 @@ import {
   ZHI_HIDDEN_STEMS,
   ZHI_WUXING,
 } from './baziCalculator';
+import { buildCanonicalDerivedBranchRules } from './ganZhiRelationRules';
 
 export const MINGLI_INTERACTION_RULE_VERSION = 'mingli_interactions_v1';
 
@@ -48,6 +49,7 @@ export type MingliRelationType =
   | 'branch_arch_harmony'
   | 'branch_seen_stem_hidden_harmony'
   | 'branch_three_meeting'
+  | 'branch_half_meeting'
   | 'branch_arch_meeting'
   | 'branch_three_punishment'
   | 'branch_punishment'
@@ -150,6 +152,11 @@ export interface MingliFactPanel {
   earthlyBranchNatal: string[];
 }
 
+export interface MingliGanZhiEffectsBrief {
+  heavenly_stems: string[];
+  earthly_branches: string[];
+}
+
 const BRANCH_BREAKS: Array<[string, string]> = [
   ['子', '酉'],
   ['卯', '午'],
@@ -162,6 +169,7 @@ const BRANCH_BREAKS: Array<[string, string]> = [
 const BRANCH_SELF_PUNISHMENTS = ['辰', '午', '酉', '亥'];
 
 const BRANCH_HIDDEN_COMBINATIONS: Array<[string, string]> = [
+  ['寅', '丑'],
   ['卯', '申'],
   ['巳', '酉'],
   ['午', '亥'],
@@ -221,7 +229,7 @@ const pairRules: PairRule[] = [
     transformElement: rule.element,
     baseIntensity: 0.66,
   })),
-  ...STEM_CONTROL_CLASHES.map((pair) => ({
+  ...buildStemControlPairs().map((pair) => ({
     relation: 'stem_control_clash' as const,
     relationName: '天干相克冲',
     aliases: ['天干克', '天干冲'],
@@ -290,14 +298,15 @@ const branchGroupRules: BranchGroupRule[] = [
     centerBranch: rule.center,
     baseIntensity: 0.84,
   })),
-  ...BRANCH_THREE_MEETINGS.map((rule) => ({
-    branches: rule.branches,
-    relation: 'branch_three_meeting' as const,
-    relationName: '地支三会',
-    aliases: ['三会'],
-    transformElement: rule.element,
-    baseIntensity: 0.80,
-  })),
+	  ...BRANCH_THREE_MEETINGS.map((rule) => ({
+	    branches: rule.branches,
+	    relation: 'branch_three_meeting' as const,
+	    relationName: '地支三会',
+	    aliases: ['三会'],
+	    transformElement: rule.element,
+	    centerBranch: rule.center,
+	    baseIntensity: 0.80,
+	  })),
   {
     branches: ['丑', '未', '戌'],
     relation: 'branch_three_punishment',
@@ -334,6 +343,14 @@ export function buildMingliFactPanel(interactions: MingliInteraction[]): MingliF
     heavenlyStemNatal: [],
     earthlyBranchNatal: [],
   });
+}
+
+export function buildMingliGanZhiEffectsBrief(interactions: MingliInteraction[]): MingliGanZhiEffectsBrief {
+  const panel = buildMingliFactPanel(interactions);
+  return {
+    heavenly_stems: panel.heavenlyStemNatal,
+    earthly_branches: panel.earthlyBranchNatal,
+  };
 }
 
 export function buildNatalMingliInteractions(chart: Partial<FullChartResult>): MingliInteraction[] {
@@ -607,8 +624,13 @@ function buildDerivedBranchInteraction(
   const targetsComparedAgainst = comparedAgainst(targets);
   const factLabel = derivedBranchFactLabel(rule);
   const shortLabel = derivedBranchShortLabel(rule);
-  const missingText = rule.missingBranch ? `，拱${rule.missingBranch}${ZHI_WUXING[rule.missingBranch] || ''}` : '';
-  const transformText = rule.transformElement ? `，${rule.relation === 'branch_half_harmony' ? '半合' : '可引'}${rule.transformElement}局` : '';
+  const isArchRelation = rule.relation === 'branch_arch_harmony' || rule.relation === 'branch_arch_meeting';
+  const missingText = rule.missingBranch && isArchRelation ? `，拱${rule.missingBranch}${ZHI_WUXING[rule.missingBranch] || ''}` : '';
+  const transformText =
+    rule.relation === 'branch_half_harmony' && rule.transformElement ? `，半合${rule.transformElement}局` :
+    rule.relation === 'branch_half_meeting' && rule.transformElement ? `，半会${rule.transformElement}` :
+    rule.transformElement ? `，可引${rule.transformElement}局` :
+    '';
   return {
     id: '',
     scope,
@@ -897,18 +919,20 @@ function pairFactLabel(rule: PairRule): string {
 function pairShortLabel(rule: PairRule): string {
   const [left, right] = rule.pair;
   if (rule.relation === 'stem_five_combination') {
-    return `${left}${right}合化${rule.transformElement || ''}`;
+    return `${left}${right}合${rule.transformElement || ''}`;
   }
   if (rule.relation === 'stem_control_clash') {
     return stemControlShortLabel(left, right);
   }
   if (rule.relation === 'branch_six_combination') {
-    return `${left}${right}合化${rule.transformElement || ''}`;
+    return `${left}${right}六合${rule.transformElement || ''}`;
   }
   if (rule.relation === 'branch_clash') return `${left}${right}相冲`;
   if (rule.relation === 'branch_piercing') return `${left}${right}相害`;
   if (rule.relation === 'branch_break') return `${left}${right}相破`;
-  if (rule.relation === 'branch_punishment') return `${left}刑${right}`;
+  if (rule.relation === 'branch_punishment') {
+    return left === '子' && right === '卯' ? '子卯相刑' : `${left}刑${right}`;
+  }
   if (rule.relation === 'branch_hidden_combination') return `${left}${right}暗合`;
   if (rule.relation === 'branch_hidden_meeting') return `${left}${right}暗会`;
   return `${left}${right}${rule.aliases[0] || rule.relationName}`;
@@ -933,6 +957,7 @@ function groupShortLabel(rule: BranchGroupRule): string {
 function derivedBranchFactLabel(rule: DerivedBranchRule): string {
   const label = rule.branches.map(branch => `${branch}${ZHI_WUXING[branch] || ''}`).join('');
   if (rule.relation === 'branch_half_harmony') return `${label}半合${rule.transformElement || ''}局`;
+  if (rule.relation === 'branch_half_meeting') return `${label}半会${rule.transformElement || ''}`;
   if (rule.relation === 'branch_arch_harmony') {
     return `${label}拱合${rule.missingBranch || ''}${rule.missingBranch ? ZHI_WUXING[rule.missingBranch] || '' : ''}`;
   }
@@ -948,8 +973,9 @@ function derivedBranchFactLabel(rule: DerivedBranchRule): string {
 function derivedBranchShortLabel(rule: DerivedBranchRule): string {
   const branches = rule.branches.join('');
   if (rule.relation === 'branch_half_harmony') return `${branches}半合${rule.transformElement || ''}局`;
+  if (rule.relation === 'branch_half_meeting') return `${branches}半会${rule.transformElement || ''}`;
   if (rule.relation === 'branch_arch_harmony') return `${branches}拱合${rule.missingBranch || ''}`;
-  if (rule.relation === 'branch_arch_meeting') return `${branches}拱会${rule.missingBranch || ''}`;
+  if (rule.relation === 'branch_arch_meeting') return `${branches}拱会${rule.transformElement || ''}局`;
   if (rule.relation === 'branch_seen_stem_hidden_harmony') return `${branches}见${(rule as SeenStemHiddenHarmonyRule).seenStem}暗合${rule.transformElement || ''}局`;
   if (rule.relation === 'branch_hidden_combination') return `${branches}暗合`;
   if (rule.relation === 'branch_hidden_meeting') return `${branches}暗会`;
@@ -970,9 +996,35 @@ function fixedBranchFactLabel(
 
 function fixedBranchShortLabel(relation: MingliRelationType, participants: MingliParticipant[]): string {
   const branches = Array.from(new Set(participants.map(item => item.branch).filter((branch): branch is string => Boolean(branch))));
-  if (relation === 'branch_self_punishment') return `${branches[0] || ''}刑${branches[0] || ''}`;
+  if (relation === 'branch_self_punishment') return `${branches[0] || ''}${branches[0] || ''}自刑`;
   if (relation === 'branch_same') return `${branches.join('')}伏吟`;
   return `${branches.join('')}${relation}`;
+}
+
+function buildStemControlPairs(): Array<[string, string]> {
+  const stems = Object.keys(GAN_WUXING);
+  const combinationKeys = new Set(STEM_COMBINATIONS.map(rule => normalizedPairKey(rule.stems[0], rule.stems[1])));
+  const seen = new Set(STEM_CONTROL_CLASHES.map(pair => normalizedPairKey(pair[0], pair[1])));
+  const pairs = [...STEM_CONTROL_CLASHES];
+
+  stems.forEach((controller) => {
+    stems.forEach((controlled) => {
+      if (controller === controlled) return;
+      const controllerElement = GAN_WUXING[controller];
+      const controlledElement = GAN_WUXING[controlled];
+      if (!controllerElement || !controlledElement || WUXING_CONTROLS[controllerElement] !== controlledElement) return;
+      const key = normalizedPairKey(controller, controlled);
+      if (combinationKeys.has(key) || seen.has(key)) return;
+      seen.add(key);
+      pairs.push([controller, controlled]);
+    });
+  });
+
+  return pairs;
+}
+
+function normalizedPairKey(left: string, right: string): string {
+  return [left, right].sort().join('|');
 }
 
 function stemControlShortLabel(left: string, right: string): string {
@@ -1025,14 +1077,21 @@ function panelSuppressionKeys(interactions: MingliInteraction[]): Set<string> {
 
   return interactions.reduce<Set<string>>((keys, item) => {
     if (
-      (item.relation === 'branch_half_harmony' || item.relation === 'branch_arch_harmony' || item.relation === 'branch_seen_stem_hidden_harmony') &&
+      (item.relation === 'branch_half_harmony' || item.relation === 'branch_arch_harmony') &&
       fullHarmony.some(group => sameDerivedGroup(item, group))
     ) {
       keys.add(panelInteractionKey(item));
     }
     if (
-      item.relation === 'branch_arch_meeting' &&
+      (item.relation === 'branch_half_meeting' || item.relation === 'branch_arch_meeting') &&
       fullMeeting.some(group => sameDerivedGroup(item, group))
+    ) {
+      keys.add(panelInteractionKey(item));
+    }
+    if (
+      item.relation === 'branch_seen_stem_hidden_harmony' &&
+      item.missingBranch !== item.centerBranch &&
+      fullHarmony.some(group => sameDerivedGroup(item, group))
     ) {
       keys.add(panelInteractionKey(item));
     }
@@ -1067,55 +1126,16 @@ function hiddenPairPanelKey(item: MingliInteraction, marker: string): string | n
 }
 
 function buildDerivedBranchRules(): DerivedBranchRule[] {
-  const rules: DerivedBranchRule[] = [];
-
-  BRANCH_THREE_HARMONIES.forEach((rule) => {
-    const [first, center, last] = rule.branches;
-    rules.push({
-      branches: [first, center],
-      relation: 'branch_half_harmony',
-      relationName: '地支半合',
-      aliases: ['半合'],
-      transformElement: rule.element,
-      centerBranch: center,
-      baseIntensity: 0.60,
-    });
-    rules.push({
-      branches: [center, last],
-      relation: 'branch_half_harmony',
-      relationName: '地支半合',
-      aliases: ['半合'],
-      transformElement: rule.element,
-      centerBranch: center,
-      baseIntensity: 0.60,
-    });
-    rules.push({
-      branches: [first, last],
-      relation: 'branch_arch_harmony',
-      relationName: '地支拱合',
-      aliases: ['拱合'],
-      transformElement: rule.element,
-      centerBranch: center,
-      missingBranch: center,
-      baseIntensity: 0.50,
-    });
-  });
-
-  BRANCH_THREE_MEETINGS.forEach((rule) => {
-    const [first, center, last] = rule.branches;
-    rules.push({
-      branches: [first, last],
-      relation: 'branch_arch_meeting',
-      relationName: '地支拱会',
-      aliases: ['拱会'],
-      transformElement: rule.element,
-      centerBranch: center,
-      missingBranch: center,
-      baseIntensity: 0.48,
-    });
-  });
-
-  return rules;
+  return buildCanonicalDerivedBranchRules().map(rule => ({
+    branches: rule.branches,
+    relation: rule.relation,
+    relationName: rule.relationName,
+    aliases: rule.aliases,
+    transformElement: rule.element,
+    centerBranch: rule.centerBranch,
+    missingBranch: rule.missingBranch,
+    baseIntensity: rule.baseIntensity,
+  }));
 }
 
 function buildSeenStemHiddenHarmonyRules(
@@ -1127,10 +1147,10 @@ function buildSeenStemHiddenHarmonyRules(
   const rules: SeenStemHiddenHarmonyRule[] = [];
 
   BRANCH_THREE_HARMONIES.forEach((rule) => {
-    if (rule.element !== '木') return;
     if (!rule.branches.includes(leftBranch) || !rule.branches.includes(rightBranch) || leftBranch === rightBranch) return;
     const missingBranch = rule.branches.find(branch => branch !== leftBranch && branch !== rightBranch);
     if (!missingBranch) return;
+    if (rule.element !== '木' && missingBranch !== rule.center) return;
     const seenStem = (ZHI_HIDDEN_STEMS[missingBranch] || []).find(stem => visibleStems.has(stem));
     if (!seenStem) return;
     rules.push({
