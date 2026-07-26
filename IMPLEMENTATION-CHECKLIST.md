@@ -1,5 +1,13 @@
 # 知之 ZHIZHI MVP 项目实施清单
 
+> **Status:** HISTORICAL
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 2025 MVP 启动计划；多数后端模块已实现或合同已变化
+
+> 本文保留原始任务细节和检查项，不再表示当前总体进度。新的实施顺序与验收条件见 [当前后端实现方案](docs/current-backend-implementation.md#9-实施计划)。
+
 **项目状态**: 🚀 准备启动
 **预计完成时间**: 2-3 周
 **最后更新**: 2025-01-19

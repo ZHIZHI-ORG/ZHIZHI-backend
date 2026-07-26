@@ -1,8 +1,14 @@
 # 知之 ZHIZHI - 产品业务需求文档（简洁版）
 
-**项目**: 知之ZHIZHI - 八字命理 iOS 应用  
-**版本**: v1.0  
-**文档更新日期**: 2026-02-05  
+> **Status:** HISTORICAL
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 2026-02 需求基线；当前实现请以 `docs/current-backend-implementation.md` 和 `api/api/` 为准
+
+**项目**: 知之ZHIZHI - 八字命理 iOS 应用
+**版本**: v1.0
+**文档更新日期**: 2026-02-05
 **说明**: 本文档基于代码库分析整理，用于与后端开发团队讨论API需求
 
 ---
@@ -48,27 +54,27 @@ graph TD
     A --> E[洞察模块]
     A --> F[资料模块]
     A --> G[对话模块]
-    
+
     B --> B1[邀请码验证]
     B --> B2[邮箱注册/登录]
     B --> B3[第三方登录]
     B --> B4[密码重置]
-    
+
     C --> C1[八字档案管理]
     C --> C2[四柱命盘展示]
     C --> C3[大运/流年/流月/流日]
     C --> C4[神煞分析]
-    
+
     D --> D1[日主卡片]
     D --> D2[场景建议 2x2]
     D --> D3[深度下钻卡片]
     D --> D4[AI输入框]
-    
+
     E --> E1[运势轮播卡片]
     E --> E2[五维分析瀑布流]
     E --> E3[中型洞察卡片]
     E --> E4[追问系统]
-    
+
     F --> F1[用户资料编辑]
     F --> F2[八字档案列表]
     F --> F3[邀请好友]
@@ -494,7 +500,7 @@ ChatMessage {
 
 ## 📝 附录：现有 API 契约
 
-详细的 API 契约文档请参考：[API-CONTRACT.md](file:///Users/hangdongguo/Desktop/ZHIZHI/ZHI9.25/API-CONTRACT.md)
+历史 API 契约文档请参考：[API-CONTRACT.md](../API-CONTRACT.md)。当前接口实现请参考 [当前后端实现方案](../docs/current-backend-implementation.md)。
 
 ---
 

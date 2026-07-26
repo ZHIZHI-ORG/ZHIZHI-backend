@@ -34,6 +34,28 @@ export class BaziProfileRepository {
   }
 
   /**
+   * 按所有者读取单个有效档案。
+   *
+   * 与旧 findById 不同，这个方法不会把数据库故障伪装成「不存在」，
+   * 供需要 fail-closed 的 V2 日运链路使用。
+   */
+  async findOwnedById(ownerUserId: string, id: string): Promise<BaziProfile | null> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .eq('owner_user_id', ownerUserId)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`查询八字档案失败: ${error.message}`);
+    }
+
+    return data ? data as BaziProfile : null;
+  }
+
+  /**
    * 查询用户的所有八字档案
    * @param ownerUserId - 用户 ID
    * @param query - 查询参数
@@ -118,6 +140,7 @@ export class BaziProfileRepository {
         true_solar_correction_minutes: input.true_solar_correction_minutes ?? null,
         calculation_metadata: input.calculation_metadata || null,
         mbti: input.mbti || null,
+        daily_fortune_context: input.daily_fortune_context || {},
 
         // 备注
         notes: input.notes || null,

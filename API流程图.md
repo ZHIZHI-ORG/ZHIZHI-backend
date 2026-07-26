@@ -1,5 +1,13 @@
 # 知之 ZHIZHI — API 调用流程图
 
+> **Status:** PARTIAL
+> **Release:** SHIPPABLE
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** `api/api/[...path].ts`、`api/src/services/`、`api/src/database/repositories/`
+
+> 本文的 Handler → Service → Repository → Supabase 分层仍适用，只覆盖基础流程。完整路由、AI/历史缓存、StoreKit 和实施计划见 [当前后端实现方案](docs/current-backend-implementation.md)。
+
 ---
 
 ## 整体架构

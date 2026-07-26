@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   );
   assert.deepEqual(
     ziping1995.gan_zhi_effects.heavenly_stems,
-    ['乙庚合金', '丙火克庚金', '丁火克庚金'],
+    ['乙庚合金', '丁克庚', '丙克庚'],
     'AI payload 应单独完整列出天干作用'
   );
   assert.deepEqual(
@@ -120,12 +120,12 @@ async function main(): Promise<void> {
   const chart1980 = await calculateFullChart(1980, 1, 13, 12, 0, false, 1, 1);
   assert.deepEqual(
     chart1980.zipingAiBrief.gan_zhi_effects.heavenly_stems,
-    ['丁壬合木'],
+    ['丁壬合木', '乙克己', '己克壬'],
     '合干应列入 heavenly_stems'
   );
   assert.deepEqual(
     chart1980.zipingAiBrief.gan_zhi_effects.earthly_branches,
-    ['酉丑半合金', '午未半会火', '午未六合', '丑未冲', '丑午害', '丑未刑'],
+    ['丑未相冲', '午未六合土', '酉丑半合金局', '丑刑未', '丑午相害', '午未半会火'],
     '多项地支作用应完整列出，不使用等N项截断'
   );
   assert.ok(!JSON.stringify(chart1980.zipingAiBrief.gan_zhi_effects).includes('等'), '干支作用 JSON 不应截断为等N项');

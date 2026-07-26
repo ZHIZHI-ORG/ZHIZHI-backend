@@ -1,5 +1,13 @@
 # 古法结构事实层规则规划
 
+> **Status:** SUPERSEDED
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 早期三类月令事实规划；当前合同由 `zipingStructureFacts.ts` 与相关测试接管
+
+> 本文保留最小事实层的设计推导和示例。当前实现已经扩展为 `ziping_structure_v2_fact_layer` 与 `ziping_ai_brief_v1`，不要按本文的三类输出上限裁剪现有合同。
+
 ## 1. 产品结论
 
 事实层只输出 AI 不应该临场猜的结构证据。

@@ -1,5 +1,13 @@
 # ZHIZHI Auth Provider Configuration
 
+> **Status:** PARTIAL
+> **Release:** EXPERIMENTAL
+> **Verification:** EXTERNAL_UNVERIFIED
+> **Last verified:** 2026-07-11
+> **Sources:** backend auth handlers/services；文中 Supabase/Apple/Google/iOS 状态未在本轮复验
+
+> 本文保留完整 Provider 配置方案和验收计划。后端 social-login 代码存在不等于外部 Provider 或 iOS SDK 已接通；当前系统合同见 [当前后端实现方案](../docs/current-backend-implementation.md#41-认证和邀请码)。
+
 ## Product Meaning
 
 Auth is not only an account utility for ZHIZHI. It decides whether a new user can enter the private beta, whether App Review can verify the app, and whether user data can be safely attached to one stable account.
@@ -260,4 +268,3 @@ iOS still needs:
 | Client secret committed | Account/security exposure | Store Apple `.p8`, Google secret, and Supabase service key outside git |
 | Fake auth remains default | App appears logged in without real session | Move bypass behind debug-only build flag before release |
 | Provider payload mismatch | Backend returns 400 despite valid SDK token | Keep iOS payload as `socialToken`, provider lowercase |
-

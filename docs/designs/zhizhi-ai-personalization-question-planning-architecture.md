@@ -1,7 +1,13 @@
 # 知之 AI 个性化与主动问题规划架构
 
-生成日期：2026-05-15  
-适用范围：知之后端、iOS 首页/知之页、每日推送、受控下钻问题、历史回看  
+> **Status:** ROADMAP
+> **Release:** EXPERIMENTAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 当前 fortune/history/interaction 实现 + 本文目标模块；记忆与规划架构尚未实现
+
+生成日期：2026-05-15
+适用范围：知之后端、iOS 首页/知之页、每日推送、受控下钻问题、历史回看
 状态：方案评估稿，未进入实现
 
 ## 1. 结论
@@ -678,4 +684,3 @@ CREATE TABLE ai_generation_artifacts (
 - Anthropic Memory Tool: https://docs.claude.com/en/docs/agents-and-tools/tool-use/memory-tool
 - LangGraph Persistence: https://docs.langchain.com/oss/python/langgraph/persistence
 - LlamaIndex Docs: https://docs.llamaindex.ai/
-

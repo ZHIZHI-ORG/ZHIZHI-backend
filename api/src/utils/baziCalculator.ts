@@ -572,7 +572,10 @@ export async function calculateFullChart(
     ...natalPillars,
     patternCandidates,
   });
-  const zipingAiBrief = buildZipingAiBrief(zipingStructureFacts);
+  const zipingAiBrief = buildZipingAiBrief(
+    zipingStructureFacts,
+    buildMingliGanZhiEffectsBriefForChart(natalPillars),
+  );
 
   // ── 步骤 7：计算大运 ────────────────────────────────────────
   const yun = bazi.getYun(gender, sect);
@@ -1110,6 +1113,16 @@ export function buildDailyLuckData(dayGan: string, day: string): DailyLuckData {
     xun: lunar.getDayXun?.() || '',
     xunKong: lunar.getDayXunKong?.() || '',
   };
+}
+
+function buildMingliGanZhiEffectsBriefForChart(
+  natalPillars: Pick<FullChartResult, 'year' | 'month' | 'day' | 'time'>,
+): ZipingAiBriefResult['gan_zhi_effects'] {
+  const {
+    buildMingliGanZhiEffectsBrief,
+    buildNatalMingliInteractions,
+  } = require('./mingliInteractionEngine') as typeof import('./mingliInteractionEngine');
+  return buildMingliGanZhiEffectsBrief(buildNatalMingliInteractions(natalPillars));
 }
 
 export function buildDailyLuckListForMonth(

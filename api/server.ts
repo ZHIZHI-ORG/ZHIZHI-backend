@@ -50,6 +50,7 @@ import baziLuckBundleHandler from './api/bazi/[id]/luck-bundle';
 // 运势模块（对应 simple.md §5 首页模块）
 import fortuneDailyHandler from './api/fortune/daily';
 import fortuneDrilldownHandler from './api/fortune/drilldown';
+import fortuneDailyV2Handler from './api/v2/fortune/daily';
 
 // 洞察模块（对应 simple.md §6 洞察分析模块）
 import insightCardsHandler    from './api/insights/cards';
@@ -99,6 +100,7 @@ const routes: Record<string, any> = {
   // 运势模块
   '/api/fortune/daily': fortuneDailyHandler,
   '/api/fortune/drilldown': fortuneDrilldownHandler,
+  '/api/v2/fortune/daily': fortuneDailyV2Handler,
 
   // 洞察模块（精确路径，动态 /api/insights/detail/:category 在下方处理）
   '/api/insights/cards':    insightCardsHandler,
@@ -128,7 +130,7 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   // 处理浏览器 OPTIONS 预检请求
-  if (req.method === 'OPTIONS') {
+  if (req.method === 'OPTIONS' && pathname !== '/api/v2/fortune/daily') {
     res.writeHead(200);
     res.end();
     return;

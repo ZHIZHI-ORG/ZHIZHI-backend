@@ -1,5 +1,11 @@
 # 喜忌用神调候规则索引
 
+> **Status:** ROADMAP
+> **Release:** EXPERIMENTAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 规则索引与 v1 计划；不是当前完整运行时判断合同
+
 ## 1. 文档定位
 
 这份文档定义命理判断层里的喜忌、用神和调候规则索引。
@@ -689,4 +695,3 @@ mingli_judgement_analysis:
 - 每个候选都带证据和置信度。
 - AI 只能基于这层输出解释，不能自行发明喜忌。
 - 当前资料页和未来运势页能复用同一套判断口径。
-

@@ -1,5 +1,11 @@
 # 日主旺衰事实层规则文档
 
+> **Status:** ROADMAP
+> **Release:** EXPERIMENTAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 当前 `dayMasterStrength` 输出 + 本文校准方案；不代表规则已全部落地
+
 ## 1. 产品结论
 
 旺衰事实层回答的是：

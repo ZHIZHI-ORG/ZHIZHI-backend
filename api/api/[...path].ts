@@ -27,6 +27,7 @@ import baziLuckBundleHandler from './bazi/[id]/luck-bundle';
 
 import fortuneDailyHandler from './fortune/daily';
 import fortuneDrilldownHandler from './fortune/drilldown';
+import fortuneDailyV2Handler from './v2/fortune/daily';
 
 import insightCardsHandler from './insights/cards';
 import insightAnalysisHandler from './insights/analysis';
@@ -70,6 +71,7 @@ const routes: Record<string, Handler> = {
 
   '/api/fortune/daily': fortuneDailyHandler,
   '/api/fortune/drilldown': fortuneDrilldownHandler,
+  '/api/v2/fortune/daily': fortuneDailyV2Handler,
 
   '/api/insights/cards': insightCardsHandler,
   '/api/insights/analysis': insightAnalysisHandler,
@@ -150,11 +152,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
+  const url = new URL(req.url || '/', `https://${req.headers.host || 'zhizhi-api.vercel.app'}`);
+
   if (req.method === 'OPTIONS') {
+    if (url.pathname === '/api/v2/fortune/daily') {
+      return fortuneDailyV2Handler(req, res);
+    }
     return res.status(200).send('');
   }
 
-  const url = new URL(req.url || '/', `https://${req.headers.host || 'zhizhi-api.vercel.app'}`);
   const { handler: routeHandler, params } = resolveRoute(url.pathname);
 
   if (!routeHandler) {

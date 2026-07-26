@@ -50,6 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         birth_latitude: req.body.birth_latitude,
         birth_longitude: req.body.birth_longitude,
         mbti: req.body.mbti,
+        daily_fortune_context: req.body.daily_fortune_context,
         notes: req.body.notes,
       });
       const response = Response.ok(updatedProfile, '档案更新成功');

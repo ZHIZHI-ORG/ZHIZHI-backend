@@ -1,5 +1,13 @@
 # Supabase 配置指南 - 知之 ZHIZHI 项目
 
+> **Status:** SUPERSEDED
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 早期初始化教程；当前数据库事实为 `supabase/schema.sql` + `supabase/migrations/002..010`
+
+> 本文仍描述 `profiles/contents/comments/likes`，与当前 `users/bazi_profiles/history_records/commerce_*` 等结构不一致。保留操作细节供追溯，当前迁移顺序和验收见 [当前后端实现方案](docs/current-backend-implementation.md#5-数据库结构与迁移顺序)。
+
 ## 🚀 第一步：创建 Supabase 项目
 
 ### 1. 注册账号

@@ -1,7 +1,15 @@
 # 认证模块业务需求与接口契约 (Authentication Requirements & API Contract) - V4.1 (Backend Aligned)
 
+> **Status:** SUPERSEDED
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** V4.1 需求草案；当前 handler 使用 `/api/*` 与 camelCase 请求字段
+
+> 本文保留认证策略和前端清单供追溯。`GET /config/auth`、部分 snake_case 字段和社交登录 payload 与当前 handler 不一致，实施时以 [当前后端实现方案](../docs/current-backend-implementation.md#41-认证和邀请码) 为准。
+
 > **版本 (Version)**: 4.1 (Aligned with Backend naming convention)
-> **基础 (Base)**: Inherits from existing [API-CONTRACT.md](file:///Users/hangdongguo/Desktop/ZHIZHI/ZHI9.25/API-CONTRACT.md) (v1.0)
+> **基础 (Base)**: Inherits from existing [API-CONTRACT.md](../API-CONTRACT.md) (v1.0)
 > **状态 (Status)**: 已锁定 (Locked for Development)
 
 ---
@@ -110,10 +118,10 @@
 // Request
 {
   "email": "user@example.com",
-  "password": "SecurePassword123!", 
+  "password": "SecurePassword123!",
   "verification_code": "123456",
   "invitation_code": "INVITE_2026", // Strict模式下必填
-  "social_token": "optional_token",  
+  "social_token": "optional_token",
   "display_name": "optional_name" // 保持snake_case
 }
 
@@ -154,7 +162,7 @@
 {
   "provider": "APPLE", // "GOOGLE"
   "token": "identity_token_from_sdk",
-  "invitation_code": "opt_code_from_gatekeeper" 
+  "invitation_code": "opt_code_from_gatekeeper"
 }
 ```
 

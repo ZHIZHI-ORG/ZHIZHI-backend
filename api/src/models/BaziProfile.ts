@@ -2,6 +2,7 @@
  * 八字档案数据模型
  * 对应数据库表：bazi_profiles
  */
+import type { DailyFortuneProfileContext } from './DailyFortuneContext';
 
 /**
  * 性别枚举
@@ -78,6 +79,9 @@ export interface BaziProfile {
   calculation_metadata?: any; // 排盘校准元信息
   mbti?: string;           // MBTI 类型
 
+  // 首页日运的结构化现实上下文和知之理解快照
+  daily_fortune_context?: DailyFortuneProfileContext;
+
   // 备注
   notes?: string;
 
@@ -112,6 +116,8 @@ export interface CreateBaziProfileInput {
   birth_longitude?: number;
   mbti?: string;
 
+  daily_fortune_context?: DailyFortuneProfileContext;
+
   notes?: string;
 }
 
@@ -139,6 +145,7 @@ export interface UpdateBaziProfileInput {
   true_solar_correction_minutes?: number | null;
   calculation_metadata?: any;
   mbti?: string;
+  daily_fortune_context?: DailyFortuneProfileContext;
   bazi_year_stem?: string;
   bazi_year_branch?: string;
   bazi_month_stem?: string;

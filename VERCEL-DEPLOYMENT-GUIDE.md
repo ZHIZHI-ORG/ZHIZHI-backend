@@ -1,5 +1,13 @@
 # Vercel 部署指南 - 知之 ZHIZHI 项目
 
+> **Status:** HISTORICAL
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 早期 Vercel 入门步骤；当前配置为 `api/vercel.json` 和 `api/package.json`
+
+> 本文包含旧本机路径、旧项目名和入门操作，不是当前发布 runbook。当前部署根目录、变量和验证分层见 [当前后端实现方案](docs/current-backend-implementation.md#6-环境变量与外部依赖)。
+
 ## 🎯 Vercel 是什么？
 
 Vercel 是一个**云部署平台**，专门用于部署前端和 Serverless API。

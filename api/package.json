@@ -12,6 +12,7 @@
     "verify:ganzhi-calendar": "node scripts/verify-ganzhi-calendar.js",
     "verify:four-pillars-daily-index": "node scripts/verify-four-pillars-daily-index.js",
     "build": "tsc",
+    "test:docs": "ts-node tests/docsIntegrity.test.ts && node scripts/verify-docs.js",
     "test:shensha": "ts-node tests/shenShaValidation.ts",
     "test:wuxing": "ts-node tests/weightedWuxing.test.ts",
     "test:bazi-basic-info": "ts-node tests/baziBasicInfo.test.ts",
@@ -24,6 +25,7 @@
     "test:invite": "ts-node tests/inviteCodeService.test.ts",
     "test:auth-infra": "ts-node tests/authInfrastructure.test.ts",
     "test:commerce": "ts-node tests/commerceService.test.ts",
+    "test:daily-fortune": "ts-node tests/dailyFortuneAi.test.ts && ts-node tests/dailyFortuneBaziBoundary.test.ts && ts-node tests/dailyFortuneService.test.ts && ts-node tests/dailyFortuneRoute.test.ts",
     "deploy": "vercel --prod",
     "type-check": "tsc --noEmit"
   },

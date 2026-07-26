@@ -1,5 +1,13 @@
 # 命理格局判断规则文档
 
+> **Status:** PARTIAL
+> **Release:** EXPERIMENTAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** `patternJudgement.ts`、`zipingStructureFacts.ts`、`patternJudgement.test.ts`
+
+> 基础候选和部分状态合同已有代码，成格、败格、破格、救应仍包含规划内容。每一阶段以文内明确边界和自动测试为准。
+
 ## 1. 产品结论
 
 格局判断层不属于基础事实层。它读取事实层证据，然后判断：

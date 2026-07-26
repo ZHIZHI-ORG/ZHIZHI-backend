@@ -1,5 +1,13 @@
 # API 接口契约文档
 
+> **Status:** SUPERSEDED
+> **Release:** HISTORICAL
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** 2025 v1 合同；当前合同由 `api/api/`、handler/service/model 和 `docs/current-backend-implementation.md` 接管
+
+> 本文保留早期请求/响应细节供追溯。它没有覆盖当前 39 个路由文件，部分字段已经变化，不能直接用于新客户端联调。
+
 **项目**: 知之ZHIZHI - 八字命理应用
 **版本**: v1.0
 **更新时间**: 2025-01-19

@@ -497,7 +497,10 @@ export function buildZipingStructureFacts(input: ZipingStructureInput): ZipingSt
   };
 }
 
-export function buildZipingAiBrief(facts: ZipingStructureFactsResult): ZipingAiBriefResult {
+export function buildZipingAiBrief(
+  facts: ZipingStructureFactsResult,
+  ganZhiEffectsOverride?: ZipingAiBriefResult['gan_zhi_effects'],
+): ZipingAiBriefResult {
   const month = facts.month_command;
   const dayMaster = facts.day_master_facts;
   const patterns = facts.pattern_candidates;
@@ -525,7 +528,7 @@ export function buildZipingAiBrief(facts: ZipingStructureFactsResult): ZipingAiB
   ) || '未见明确根气材料';
   const visibleStemText = summarizeVisibleStemFacts(dayMaster);
   const climateSummary = summarizeClimateForAi(month, usage);
-  const ganZhiEffectsPayload = summarizeGanZhiEffectsForAi(facts.gan_zhi_effects);
+  const ganZhiEffectsPayload = ganZhiEffectsOverride || summarizeGanZhiEffectsForAi(facts.gan_zhi_effects);
   const patternCoreText = summarizeList([
     ...patterns.regular.map(item => `${item.ten_god}${item.family === 'auxiliary' ? '辅助' : ''}`),
     ...patterns.mixed_qi.map(item => `杂气${item.ten_god}`),

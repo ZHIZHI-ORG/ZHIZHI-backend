@@ -1,5 +1,13 @@
 # 命理事实层规则说明
 
+> **Status:** PARTIAL
+> **Release:** EXPERIMENTAL
+> **Verification:** WORKTREE
+> **Last verified:** 2026-07-11
+> **Sources:** `baziCalculator.ts`、`mingliInteractionEngine.ts`、`zipingStructureFacts.ts`、相关测试
+
+> 本文混合当前规则与后续展示/触发规划。具体字段是否已实现需逐项对照来源；当前工作树正在调整 AI brief 的干支作用输入。
+
 ## 1. 核心定位
 
 命理事实层回答的是：
@@ -705,4 +713,3 @@ AI：
 - 见干暗合局。
 - 大运、流年、流月、流日与原局之间的关系触发。
 - 真太阳时跨时辰、跨日期边界。
-

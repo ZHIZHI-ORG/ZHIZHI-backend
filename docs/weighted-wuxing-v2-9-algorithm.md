@@ -1,5 +1,11 @@
 # weighted_wuxing_v2_9 五行能量算法说明
 
+> **Status:** CURRENT
+> **Release:** SHIPPABLE
+> **Verification:** COMMITTED
+> **Last verified:** 2026-07-11
+> **Sources:** `baziCalculator.ts`、`weightedWuxing.test.ts`、固定案例
+
 ## 1. 产品结论
 
 `weighted_wuxing_v2_9` 的目标不是做一个“八个字数数量”的玩具统计，而是给前端八字资料页提供可解释的五行能量强度与占比。

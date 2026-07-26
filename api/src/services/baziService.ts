@@ -39,6 +39,7 @@ import { buildBaziBasicInfo } from '../utils/baziBasicInfo';
 import { buildMingliAiContext } from '../utils/mingliAiContext';
 import { buildPatternCandidates } from '../utils/patternJudgement';
 import { buildZipingAiBrief, buildZipingStructureFacts } from '../utils/zipingStructureFacts';
+import { parseDailyFortuneProfileContextInput } from '../utils/dailyFortuneUserContext';
 import { normalizeBirthTimeForBazi } from './trueSolarTimeService';
 
 // ============================================================
@@ -64,6 +65,9 @@ export async function createBaziProfile(
 
   // 1. 验证输入
   validateBaziInput(input);
+  const dailyFortuneContext = parseDailyFortuneProfileContextInput(
+    input.daily_fortune_context,
+  );
 
   // 2. 本人档案唯一性检查
   if (input.is_owner) {
@@ -126,6 +130,7 @@ export async function createBaziProfile(
       ? { true_solar_time: normalizedBirthTime }
       : { hour_precision: 'unknown', internal_fallback_hour: 12 },
     mbti: input.mbti,
+    daily_fortune_context: dailyFortuneContext,
     notes: input.notes,
     // 基础四柱冗余列
     bazi_year_stem: chart.year.stem,
@@ -230,6 +235,9 @@ export async function updateBaziProfile(
   const existing = await getBaziProfileById(userId, profileId);
   const merged = mergeBaziUpdateInput(existing, input);
   validateBaziInput(merged);
+  const dailyFortuneContext = parseDailyFortuneProfileContextInput(
+    merged.daily_fortune_context,
+  );
 
   const mergedHasKnownHour = hasKnownBirthHour(merged);
   const normalizedBirthTime = normalizeBirthTimeForBazi({
@@ -280,6 +288,7 @@ export async function updateBaziProfile(
       ? { true_solar_time: normalizedBirthTime }
       : { hour_precision: 'unknown', internal_fallback_hour: 12 },
     mbti: merged.mbti,
+    daily_fortune_context: dailyFortuneContext,
     notes: merged.notes,
     bazi_year_stem: chart.year.stem,
     bazi_year_branch: chart.year.branch,
@@ -317,6 +326,9 @@ function mergeBaziUpdateInput(
     birth_latitude: input.birth_latitude ?? existing.birth_latitude,
     birth_longitude: input.birth_longitude ?? existing.birth_longitude,
     mbti: input.mbti ?? existing.mbti,
+    daily_fortune_context: input.daily_fortune_context === undefined
+      ? existing.daily_fortune_context
+      : input.daily_fortune_context,
     notes: input.notes ?? existing.notes,
   };
 }
@@ -576,6 +588,17 @@ function getChart(profile: BaziProfile): any {
   return ensureChartLuckMetadata(chart, profile.day_master);
 }
 
+/**
+ * Unknown-hour profiles are still calculated internally with a noon fallback
+ * so the legacy chart and luck calculator can operate. Daily-fortune relation
+ * facts must never treat that implementation detail as a real natal pillar.
+ */
+export function projectChartToActualNatalPillars(chart: any, includeHour: boolean): any {
+  if (includeHour) return chart;
+  const { time: _internalFallbackTime, hour: _internalFallbackHour, ...actualChart } = chart || {};
+  return actualChart;
+}
+
 function mapMajorCycle(cycle: any, index: number) {
   return {
     id: `${cycle.startYear || 'unknown'}-${cycle.ganZhi || index}`,
@@ -675,8 +698,13 @@ function mapDailyLuck(item: any) {
 
 export async function getBaziChart(userId: string, profileId: string) {
   const profile = await getBaziProfileById(userId, profileId);
+  return buildBaziChartFromProfile(profile);
+}
+
+function buildBaziChartFromProfile(profile: BaziProfile) {
   const chart = getChart(profile);
   const profileHasKnownHour = hasKnownBirthHour(profile);
+  const interactionChart = projectChartToActualNatalPillars(chart, profileHasKnownHour);
   const weightedWuxing = chart.weightedWuxing || chart.weighted_wuxing_analysis || calculateWeightedWuxingFromChart(chart);
   const patternCandidates = chart.patternCandidates || chart.pattern_candidates || buildPatternCandidates({
     dayMaster: chart.dayMaster || profile.day_master || '',
@@ -702,7 +730,7 @@ export async function getBaziChart(userId: string, profileId: string) {
     });
   const zipingAiBrief = existingZipingBrief || buildZipingAiBrief(zipingStructureFacts);
   const baziBasicInfo = buildBaziBasicInfo({ profile, chart });
-  const natalInteractions = buildNatalMingliInteractions(chart);
+  const natalInteractions = buildNatalMingliInteractions(interactionChart);
   const natalGanZhiEffects = buildMingliGanZhiEffectsBrief(natalInteractions);
   const zipingStructure = zipingAiBriefToContract(zipingAiBrief, natalGanZhiEffects);
   const mingliAiContext = buildMingliAiContext({
@@ -728,11 +756,11 @@ export async function getBaziChart(userId: string, profileId: string) {
     weighted_wuxing_analysis: weightedWuxingToContract(weightedWuxing),
     pattern_candidates: profileHasKnownHour ? patternCandidatesToContract(patternCandidates) : null,
     ziping_structure: profileHasKnownHour ? zipingStructure : null,
-    mingli_facts: profileHasKnownHour ? {
+    mingli_facts: {
       rule_version: 'mingli_interactions_v1',
       fact_panel: mingliFactPanelToContract(buildMingliFactPanel(natalInteractions)),
       natal_interactions: natalInteractions.map(mingliInteractionToContract),
-    } : null,
+    },
     calculation_info: {
       start_luck_age: chart.startAge || 0,
       start_luck_text: chart.startDate ? `起运时间：${chart.startDate}` : '',
@@ -758,7 +786,15 @@ export async function getBaziLuckTimeline(
     throw new ValidationError('day 必须是 YYYY-MM-DD 格式');
   }
   const profile = await getBaziProfileById(userId, profileId);
+  return buildBaziLuckTimelineFromProfile(profile, query);
+}
+
+function buildBaziLuckTimelineFromProfile(
+  profile: BaziProfile,
+  query: { year?: number; month?: number; day?: string },
+) {
   const chart = getChart(profile);
+  const interactionChart = projectChartToActualNatalPillars(chart, hasKnownBirthHour(profile));
   const requestedDay = query.day || formatDateForLuck(new Date());
   const year = query.year || Number(requestedDay.slice(0, 4));
   const majorCycles = (chart.majorCycles || []) as any[];
@@ -771,13 +807,13 @@ export async function getBaziLuckTimeline(
   const selectedDay = resolveSelectedDay(query.day, requestedDay, selectedMonth);
   const selectedDaily = buildDailyLuckData(chart.dayMaster || profile.day_master || '', selectedDay);
   const dailyLucks = buildDailyLuckListForMonth(chart.dayMaster || profile.day_master || '', selectedMonth, selectedDay);
-  const timingInteractions = buildTimingMingliInteractions(chart, {
+  const timingInteractions = buildTimingMingliInteractions(interactionChart, {
     dayun: activeCycle,
     liunian: selectedAnnual,
     liuyue: selectedMonth,
     liuri: selectedDaily,
   });
-  const natalInteractions = buildNatalMingliInteractions(chart);
+  const natalInteractions = buildNatalMingliInteractions(interactionChart);
 
   return {
     profile_id: profile.id,
@@ -796,6 +832,33 @@ export async function getBaziLuckTimeline(
     daily_lucks: dailyLucks.map(mapDailyLuck),
     fact_panel: mingliFactPanelToContract(buildMingliFactPanel([...timingInteractions, ...natalInteractions])),
     timing_interactions: timingInteractions.map(mingliInteractionToContract),
+  };
+}
+
+/**
+ * 为首页 V2 日运构建同一档案快照下的原局与流运事实。
+ *
+ * 公开 chart/luck 接口各自读取档案，不能直接串成一次 AI 输入；
+ * 这个边界只读一次 owned profile，并把有效日期显式传给流运构建器。
+ */
+export async function getBaziDailyFortuneEngineBundle(
+  userId: string,
+  profileId: string,
+  effectiveDate: string,
+) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) {
+    throw new ValidationError('effectiveDate 必须是 YYYY-MM-DD 格式');
+  }
+
+  const profile = await baziProfileRepository.findOwnedById(userId, profileId);
+  if (!profile) {
+    throw new NotFoundError('八字档案不存在');
+  }
+
+  return {
+    profile,
+    chart: buildBaziChartFromProfile(profile),
+    timeline: buildBaziLuckTimelineFromProfile(profile, { day: effectiveDate }),
   };
 }
 
