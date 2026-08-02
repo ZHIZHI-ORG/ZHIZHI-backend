@@ -162,6 +162,9 @@ function interaction(input: {
     scope: input.scope,
     relation: input.relation,
     relation_name: input.relation === 'branch_arch_harmony' ? '拱合' : '冲',
+    fact_label: input.relation === 'branch_arch_harmony' ? '地支拱合' : '地支相冲',
+    short_label: input.relation === 'branch_arch_harmony' ? '拱合' : '冲',
+    display_group: 'earthly_branch_luck',
     aliases: input.relation === 'branch_arch_harmony' ? ['三合拱局'] : ['六冲'],
     participants: input.participants,
     source: input.source || input.participants[0],
@@ -242,9 +245,18 @@ function engineBundle(pillarCount: 3 | 4 = 3, context: Record<string, unknown> =
     },
     timeline: {
       active_luck_context: {
-        dayun: timingPillar('丁卯', '丁', '卯', { ten_god: '偏印' }),
+        dayun: timingPillar('丁卯', '丁', '卯', {
+          ten_god: '偏印',
+          start_year: 2024,
+          end_year: 2033,
+        }),
         liunian: timingPillar('丙午', '丙', '午', { ten_god_top: '正印', year: 2026 }),
-        liuyue: timingPillar('乙未', '乙', '未', { ten_god: '七杀', month: 7 }),
+        liuyue: timingPillar('乙未', '乙', '未', {
+          ten_god: '七杀',
+          month: 7,
+          start_date: '2026-07-07',
+          end_date: '2026-08-07',
+        }),
         liuri: timingPillar('己丑', '己', '丑', { ten_god_top: '比肩', date: '2026-07-23' }),
       },
       timing_interactions: [
@@ -346,6 +358,9 @@ async function main(): Promise<void> {
       scope: 'natal',
       relation: 'branch_arch_harmony',
       relation_name: '拱合',
+      fact_label: '地支拱合',
+      short_label: '拱合',
+      display_group: 'earthly_branch_luck',
       aliases: ['三合拱局'],
       participants: [participant('natal_pillar', 'day', '己', '丑')],
       source: participant('natal_pillar', 'day', '己', '丑'),
@@ -353,8 +368,11 @@ async function main(): Promise<void> {
       transform_element: '木',
       center_branch: '卯',
       activated_palaces: ['day'],
+      domain_candidates: ['career'],
+      target_part: 'branch',
       intensity: 0.8,
       time_horizon: 'long_term',
+      evidence: '不应进入 AI 的冗长证据',
       adjacent: false,
       full_match: false,
       missing_branch: '巳',
@@ -374,8 +392,13 @@ async function main(): Promise<void> {
         Boolean(hidden.stem) && Boolean(hidden.ten_god) && Boolean(hidden.element)
       )));
     }
-    assert.equal(JSON.stringify(facts).includes('冗长证据'), false);
-    assert.equal(JSON.stringify(facts).includes('domain_candidates'), false);
+    assert.equal(JSON.stringify(facts).includes('冗长证据'), true);
+    assert.equal(JSON.stringify(facts).includes('domain_candidates'), true);
+    assert.equal(facts.mingli_interactions.timing[0].target_part, 'branch');
+    assert.equal(facts.timing.liuyue.start_date, '2026-07-07');
+    assert.equal(facts.timing.liuyue.end_date, '2026-08-07');
+    assert.equal(facts.timing.dayun.start_year, 2024);
+    assert.equal(facts.timing.dayun.end_year, 2033);
     assert.equal(JSON.stringify(facts).includes('fact_panel'), false);
     assert.equal(JSON.stringify(facts).includes('mingli_ai_context'), false);
   });

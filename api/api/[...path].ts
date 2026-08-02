@@ -28,6 +28,9 @@ import baziLuckBundleHandler from './bazi/[id]/luck-bundle';
 import fortuneDailyHandler from './fortune/daily';
 import fortuneDrilldownHandler from './fortune/drilldown';
 import fortuneDailyV2Handler from './v2/fortune/daily';
+import recommendationNextHandler from './v2/recommendations/next';
+import recommendationEventsHandler from './v2/recommendations/events';
+import recommendationBatchHandler from './v2/recommendations/[batchId]';
 
 import insightCardsHandler from './insights/cards';
 import insightAnalysisHandler from './insights/analysis';
@@ -72,6 +75,8 @@ const routes: Record<string, Handler> = {
   '/api/fortune/daily': fortuneDailyHandler,
   '/api/fortune/drilldown': fortuneDrilldownHandler,
   '/api/v2/fortune/daily': fortuneDailyV2Handler,
+  '/api/v2/recommendations/next': recommendationNextHandler,
+  '/api/v2/recommendations/events': recommendationEventsHandler,
 
   '/api/insights/cards': insightCardsHandler,
   '/api/insights/analysis': insightAnalysisHandler,
@@ -144,6 +149,13 @@ function resolveRoute(pathname: string): { handler?: Handler; params: Record<str
     }
   }
 
+  if (pathname.startsWith('/api/v2/recommendations/')) {
+    const batchId = pathname.replace('/api/v2/recommendations/', '').split('/').filter(Boolean)[0];
+    if (batchId && batchId !== 'next' && batchId !== 'events') {
+      return { handler: recommendationBatchHandler, params: { batchId } };
+    }
+  }
+
   return { params: {} };
 }
 
@@ -157,6 +169,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
     if (url.pathname === '/api/v2/fortune/daily') {
       return fortuneDailyV2Handler(req, res);
+    }
+    if (url.pathname === '/api/v2/recommendations/next') {
+      return recommendationNextHandler(req, res);
+    }
+    if (url.pathname === '/api/v2/recommendations/events') {
+      return recommendationEventsHandler(req, res);
+    }
+    if (/^\/api\/v2\/recommendations\/[^/]+$/.test(url.pathname)) {
+      return recommendationBatchHandler(req, res);
     }
     return res.status(200).send('');
   }

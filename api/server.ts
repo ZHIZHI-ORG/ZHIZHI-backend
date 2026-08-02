@@ -51,6 +51,9 @@ import baziLuckBundleHandler from './api/bazi/[id]/luck-bundle';
 import fortuneDailyHandler from './api/fortune/daily';
 import fortuneDrilldownHandler from './api/fortune/drilldown';
 import fortuneDailyV2Handler from './api/v2/fortune/daily';
+import recommendationNextHandler from './api/v2/recommendations/next';
+import recommendationEventsHandler from './api/v2/recommendations/events';
+import recommendationBatchHandler from './api/v2/recommendations/[batchId]';
 
 // 洞察模块（对应 simple.md §6 洞察分析模块）
 import insightCardsHandler    from './api/insights/cards';
@@ -101,6 +104,8 @@ const routes: Record<string, any> = {
   '/api/fortune/daily': fortuneDailyHandler,
   '/api/fortune/drilldown': fortuneDrilldownHandler,
   '/api/v2/fortune/daily': fortuneDailyV2Handler,
+  '/api/v2/recommendations/next': recommendationNextHandler,
+  '/api/v2/recommendations/events': recommendationEventsHandler,
 
   // 洞察模块（精确路径，动态 /api/insights/detail/:category 在下方处理）
   '/api/insights/cards':    insightCardsHandler,
@@ -130,7 +135,13 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   // 处理浏览器 OPTIONS 预检请求
-  if (req.method === 'OPTIONS' && pathname !== '/api/v2/fortune/daily') {
+  if (
+    req.method === 'OPTIONS'
+    && pathname !== '/api/v2/fortune/daily'
+    && pathname !== '/api/v2/recommendations/next'
+    && pathname !== '/api/v2/recommendations/events'
+    && !/^\/api\/v2\/recommendations\/[^/]+$/.test(pathname)
+  ) {
     res.writeHead(200);
     res.end();
     return;
@@ -178,6 +189,15 @@ const server = http.createServer(async (req, res) => {
     if (category) {
       handler = insightDetailHandler;
       params = { category };
+    }
+  }
+
+  // Step 5: dynamic recommendation batch polling.
+  if (!handler && pathname.startsWith('/api/v2/recommendations/')) {
+    const batchId = pathname.replace('/api/v2/recommendations/', '').split('/').filter(Boolean)[0];
+    if (batchId && batchId !== 'next' && batchId !== 'events') {
+      handler = recommendationBatchHandler;
+      params = { batchId };
     }
   }
 

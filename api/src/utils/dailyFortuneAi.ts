@@ -159,7 +159,7 @@ export interface DailyFortuneAiTransportRequest {
     candidateCount: 1;
     maxOutputTokens: number;
     responseMimeType: 'application/json';
-    responseJsonSchema: typeof DAILY_FORTUNE_RESPONSE_SCHEMA;
+    responseJsonSchema: object;
   };
 }
 
@@ -405,7 +405,7 @@ function readTimeoutMs(): number {
   return timeoutMs;
 }
 
-function readSingleFinishedCandidate(response: unknown): string {
+export function readSingleFinishedCandidate(response: unknown): string {
   const root = expectProviderRecord(response, 'provider response');
   const promptFeedback = root.promptFeedback;
   if (isRecord(promptFeedback) && typeof promptFeedback.blockReason === 'string') {

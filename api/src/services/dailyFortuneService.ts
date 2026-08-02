@@ -537,6 +537,18 @@ function buildTimingPillar(
     ...(stringOrUndefined(value.date) ? { date: stringOrUndefined(value.date) } : {}),
     ...(typeof value.year === 'number' && Number.isFinite(value.year) ? { year: value.year } : {}),
     ...(typeof value.month === 'number' && Number.isFinite(value.month) ? { month: value.month } : {}),
+    ...(typeof value.start_year === 'number' && Number.isFinite(value.start_year)
+      ? { start_year: value.start_year }
+      : {}),
+    ...(typeof value.end_year === 'number' && Number.isFinite(value.end_year)
+      ? { end_year: value.end_year }
+      : {}),
+    ...(value.start_date === null || stringOrUndefined(value.start_date)
+      ? { start_date: value.start_date === null ? null : stringOrUndefined(value.start_date) }
+      : {}),
+    ...(value.end_date === null || stringOrUndefined(value.end_date)
+      ? { end_date: value.end_date === null ? null : stringOrUndefined(value.end_date) }
+      : {}),
     ...(value.solar_term === null || stringOrUndefined(value.solar_term)
       ? { solar_term: value.solar_term === null ? null : stringOrUndefined(value.solar_term) }
       : {}),
@@ -607,6 +619,9 @@ function compactInteraction(value: unknown): DailyFortuneMingliInteraction {
     scope: requiredFactText(record.scope, '命理作用 scope'),
     relation: requiredFactText(record.relation, '命理作用 relation'),
     relation_name: requiredFactText(record.relation_name, '命理作用名称'),
+    fact_label: requiredFactText(record.fact_label, '命理作用事实标签'),
+    short_label: requiredFactText(record.short_label, '命理作用短标签'),
+    display_group: requiredFactText(record.display_group, '命理作用展示分组'),
     aliases: stringArray(record.aliases, '命理作用别名'),
     participants,
     source: record.source === null || record.source === undefined
@@ -616,8 +631,11 @@ function compactInteraction(value: unknown): DailyFortuneMingliInteraction {
     transform_element: nullableFactText(record.transform_element),
     center_branch: nullableFactText(record.center_branch),
     activated_palaces: stringArray(record.activated_palaces, '命理作用激活宫位'),
+    domain_candidates: stringArray(record.domain_candidates, '命理作用候选领域'),
+    target_part: targetPartForRelation(requiredFactText(record.relation, '命理作用 relation')),
     intensity: requiredFiniteNumber(record.intensity, '命理作用强度'),
     time_horizon: requiredFactText(record.time_horizon, '命理作用时间范围'),
+    evidence: requiredFactText(record.evidence, '命理作用证据'),
     adjacent: requiredBoolean(record.adjacent, '命理作用相邻标记'),
     full_match: requiredBoolean(record.full_match, '命理作用完整标记'),
     missing_branch: nullableFactText(record.missing_branch),
@@ -625,6 +643,12 @@ function compactInteraction(value: unknown): DailyFortuneMingliInteraction {
     compared_against: requiredFactText(record.compared_against, '命理作用比较范围'),
     rule_version: requiredFactText(record.rule_version, '命理作用规则版本'),
   };
+}
+
+function targetPartForRelation(relation: string): 'stem' | 'branch' {
+  if (relation.startsWith('stem_')) return 'stem';
+  if (relation.startsWith('branch_')) return 'branch';
+  throw new DailyFortuneFactError('命理作用无法确定干支目标');
 }
 
 function participantArray(value: unknown, label: string): DailyFortuneInteractionParticipant[] {

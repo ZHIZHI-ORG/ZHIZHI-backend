@@ -77,6 +77,10 @@ export interface DailyFortuneTimingPillar {
   date?: string;
   year?: number;
   month?: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  start_year?: number;
+  end_year?: number;
   solar_term?: string | null;
 }
 
@@ -102,6 +106,9 @@ export interface DailyFortuneMingliInteraction {
   scope: string;
   relation: string;
   relation_name: string;
+  fact_label: string;
+  short_label: string;
+  display_group: string;
   aliases: string[];
   participants: DailyFortuneInteractionParticipant[];
   source: DailyFortuneInteractionParticipant | null;
@@ -109,8 +116,11 @@ export interface DailyFortuneMingliInteraction {
   transform_element: string | null;
   center_branch: string | null;
   activated_palaces: string[];
+  domain_candidates: string[];
+  target_part: 'stem' | 'branch';
   intensity: number;
   time_horizon: string;
+  evidence: string;
   adjacent: boolean;
   full_match: boolean;
   missing_branch: string | null;
