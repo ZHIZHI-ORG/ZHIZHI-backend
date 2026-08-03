@@ -1,8 +1,22 @@
-import type { DailyFortuneFactPackage } from './DailyFortune';
+import type {
+  DailyFortuneFactPackage,
+  DailyFortuneHiddenStem,
+  DailyFortuneInteractionParticipant,
+  DailyFortuneMingliInteraction,
+  DailyFortunePillar,
+  DailyFortuneTimingPillar,
+} from './DailyFortune';
 
-export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v1' as const;
-export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v1' as const;
+export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v5' as const;
+export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v5' as const;
 export const RECOMMENDATION_TAXONOMY_VERSION = 'recommendation_taxonomy_v1' as const;
+export const RECOMMENDATION_CANDIDATE_POOL_VERSION = 'recommendation_pool_v1' as const;
+export const RECOMMENDATION_CANDIDATE_POOL_SIZE = 24 as const;
+export const RECOMMENDATION_DISPLAY_DECK_COUNT = 8 as const;
+export const RECOMMENDATION_DISPLAY_CENTER_COUNT = 4 as const;
+export const RECOMMENDATION_ORCHESTRATOR_VERSION = 'recommendation_orchestrator_v1' as const;
+export const RECOMMENDATION_EVIDENCE_WINDOW_LIMIT = 16 as const;
+export const RECOMMENDATION_TIME_WINDOWS_BYTE_LIMIT = 96 * 1024;
 
 export const RECOMMENDATION_DOMAINS = [
   'love',
@@ -80,7 +94,6 @@ export const RECOMMENDATION_CONTENT_HORIZONS = [
   'phase',
   'year',
   'month',
-  'day',
 ] as const;
 
 export const RECOMMENDATION_SELECTION_ROLES = [
@@ -143,11 +156,15 @@ export interface RecommendationCardValidity {
   valid_until: string | null;
 }
 
-export interface CardCandidate {
+/** Complete AI-generated card before it is assigned to a UI surface. */
+export interface RecommendationCandidate {
   candidate_id: string;
-  position: number;
-  surface: RecommendationSurface;
+  pool_position: number;
   semantic_key: string;
+  /** AI-selected focus, validated against referenced_window_keys by the server. */
+  primary_time_window_key: string | null;
+  /** Mechanically derived from event_hypothesis.fact_refs; never supplied by the client. */
+  referenced_window_keys: string[];
   content_profile: RecommendationContentProfile;
   selection_role: RecommendationSelectionRole;
   event_hypothesis: RecommendationEventHypothesis;
@@ -155,6 +172,22 @@ export interface CardCandidate {
   question: string;
   preview: string;
   body: string;
+}
+
+/** A candidate projected into one immutable client-visible display batch. */
+export interface CardCandidate extends RecommendationCandidate {
+  position: number;
+  surface: RecommendationSurface;
+}
+
+export interface RecommendationCandidatePool {
+  pool_version: typeof RECOMMENDATION_CANDIDATE_POOL_VERSION;
+  candidates: RecommendationCandidate[];
+}
+
+export interface RecommendationBatchCards {
+  deck_cards: CardCandidate[];
+  center_cards: CardCandidate[];
 }
 
 /** A server-issued reference the AI may cite. */
@@ -165,17 +198,107 @@ export interface RecommendationFactReference {
 }
 
 /**
- * A future deterministic window that may be asked about today.  V1 supplies
- * the next liuyue; the shape deliberately permits later, fact-backed windows
- * without making the recommendation service decide their meaning.
+ * Recommendation facts omit redundant five-element lookup fields. Stems and
+ * branches remain the canonical values; the model does not need 木/火/土/金/水
+ * repeated beside every one of them.
  */
-export interface RecommendationForecastWindow {
-  window_key: 'next_liuyue';
-  label: string;
+export type RecommendationHardFactHiddenStem = Pick<
+  DailyFortuneHiddenStem,
+  'stem' | 'ten_god'
+>;
+
+export type RecommendationHardFactPillar = Omit<
+  DailyFortunePillar,
+  'stem_element' | 'branch_element' | 'hidden_stems'
+> & {
+  hidden_stems: RecommendationHardFactHiddenStem[];
+};
+
+export type RecommendationHardFactTimingPillar = Omit<
+  DailyFortuneTimingPillar,
+  'stem_element' | 'branch_element' | 'hidden_stems'
+> & {
+  hidden_stems: RecommendationHardFactHiddenStem[];
+};
+
+export type RecommendationHardFactMember = Omit<
+  DailyFortuneInteractionParticipant,
+  'label'
+>;
+
+/** Deterministic relation fields that recommendation AI may interpret. */
+export interface RecommendationHardFactInteraction {
+  id: DailyFortuneMingliInteraction['id'];
+  scope: DailyFortuneMingliInteraction['scope'];
+  relation: DailyFortuneMingliInteraction['relation'];
+  /** Unordered members of the relation; this carries no causal direction. */
+  members: RecommendationHardFactMember[];
+  center_branch: DailyFortuneMingliInteraction['center_branch'];
+  time_horizon: DailyFortuneMingliInteraction['time_horizon'];
+  adjacent: DailyFortuneMingliInteraction['adjacent'];
+  full_match: DailyFortuneMingliInteraction['full_match'];
+  missing_branch: DailyFortuneMingliInteraction['missing_branch'];
+  seen_stem: DailyFortuneMingliInteraction['seen_stem'];
+}
+
+/**
+ * Recommendation-only projection of the shared fact package. Domain hints,
+ * heuristic strength, display labels, and user context are deliberately absent.
+ */
+export type RecommendationHardFactPackage = Pick<
+  DailyFortuneFactPackage,
+  | 'contract_version'
+  | 'effective_date'
+  | 'timezone'
+  | 'day_boundary'
+  | 'profile'
+> & {
+  natal: {
+    pillars: RecommendationHardFactPillar[];
+    day_master: string;
+  };
+  mingli_interactions: {
+    rule_version: string;
+    natal: RecommendationHardFactInteraction[];
+  };
+};
+
+export const RECOMMENDATION_TIME_WINDOW_KINDS = [
+  'dayun',
+  'liunian',
+  'liuyue',
+] as const;
+
+export const RECOMMENDATION_TIME_WINDOW_BUCKETS = [
+  'dayun_index',
+  'current_or_parent_dayun',
+  'parent_liunian',
+  'recent_12_liuyue',
+  'future_exploration',
+] as const;
+
+export type RecommendationTimeWindowKind =
+  typeof RECOMMENDATION_TIME_WINDOW_KINDS[number];
+export type RecommendationTimeWindowBucket =
+  typeof RECOMMENDATION_TIME_WINDOW_BUCKETS[number];
+export type RecommendationTimeWindowDetailLevel = 'index' | 'evidence';
+
+/**
+ * One generic, deterministic timing window selected from the existing luck
+ * timeline. The recommendation layer groups facts; it does not decide their
+ * real-world meaning or add a second astrology rules engine.
+ */
+export interface RecommendationTimeWindow {
+  window_key: string;
+  kind: RecommendationTimeWindowKind;
+  bucket: RecommendationTimeWindowBucket;
+  detail_level: RecommendationTimeWindowDetailLevel;
+  parent_window_keys: string[];
+  is_current: boolean;
   target_window: RecommendationCardValidity;
-  /** Prefix that maps this window's facts into available_fact_refs. */
-  fact_ref_prefix: string;
-  fortune_facts: DailyFortuneFactPackage;
+  timing: RecommendationHardFactTimingPillar;
+  interaction_rule_version: string;
+  interactions: RecommendationHardFactInteraction[];
 }
 
 export type RecommendationPreferenceDimension =
@@ -199,13 +322,30 @@ export interface RecommendationInterestSignal {
 export interface RecommendationSessionOpen {
   candidate_id: string;
   content_profile: RecommendationContentProfile;
+  primary_time_window_key: string | null;
+  referenced_window_keys: string[];
   opened_at: string;
+}
+
+/** Bounded, factual memory used for time-window freshness and rotation. */
+export interface RecommendationTimeWindowHistoryItem {
+  window_key: string;
+  primary_exposures: number;
+  primary_opens: number;
+  last_primary_exposed_at: string | null;
+  last_primary_opened_at: string | null;
 }
 
 export interface RecommendationPreferenceContext {
   recent_14d: RecommendationInterestSignal[];
   long_term_90d: RecommendationInterestSignal[];
   current_session_opens: RecommendationSessionOpen[];
+}
+
+export interface RecommendationSelectionContext {
+  orchestrator_version: typeof RECOMMENDATION_ORCHESTRATOR_VERSION;
+  source: 'ai_generation' | 'pool_continuation';
+  preference_context: RecommendationPreferenceContext;
 }
 
 export interface RecommendationContentHistoryItem {
@@ -222,22 +362,65 @@ export type RecommendationRelationshipStatus =
   | 'married'
   | 'unknown';
 
+/** Explicit user reality only; it is context for translation, never 命理 evidence. */
+export interface RecommendationRealityContext {
+  life_stage: {
+    primary: string | null;
+    tags: string[];
+  };
+  work_study: {
+    mode: string | null;
+    career_status: string | null;
+    occupation: string | null;
+    industry: string | null;
+    study_status: string | null;
+    school: string | null;
+    current_goal: string | null;
+  };
+  relationship: {
+    status: RecommendationRelationshipStatus;
+    current_focus: string | null;
+  };
+  saved_understanding: {
+    current_focus: string[];
+    expression_preferences: string[];
+  };
+}
+
 export interface RecommendationAiInput {
   contract_version: typeof RECOMMENDATION_CONTRACT_VERSION;
   taxonomy_version: typeof RECOMMENDATION_TAXONOMY_VERSION;
   effective_date: string;
   timezone: string;
-  fortune_facts: DailyFortuneFactPackage;
-  forecast_windows: RecommendationForecastWindow[];
+  fortune_facts: RecommendationHardFactPackage;
+  time_windows: RecommendationTimeWindow[];
   available_fact_refs: RecommendationFactReference[];
-  relationship_status: RecommendationRelationshipStatus;
+  reality_context: RecommendationRealityContext;
   preference_context: RecommendationPreferenceContext;
   content_history: RecommendationContentHistoryItem[];
+  /** Only entries for windows selected into this call are included. */
+  time_window_history: RecommendationTimeWindowHistoryItem[];
+}
+
+export interface RecommendationAiGenerationMetrics {
+  model_id: string;
+  outcome: 'success';
+  input_json_bytes: number;
+  request_bytes: number;
+  provider_response_bytes: number;
+  output_text_bytes: number;
+  prompt_token_count: number | null;
+  cached_content_token_count: number | null;
+  candidates_token_count: number | null;
+  thoughts_token_count: number | null;
+  total_token_count: number | null;
+  latency_ms: number;
+  finish_reason: string;
 }
 
 export interface RecommendationAiOutput {
-  deck_cards: CardCandidate[];
-  center_cards: CardCandidate[];
+  candidates: RecommendationCandidate[];
+  generation_metrics: RecommendationAiGenerationMetrics;
 }
 
 export type RecommendationBatchStatus = 'generating' | 'retry_wait' | 'ready';

@@ -24,20 +24,42 @@ function recommendationInput() {
     fortune_facts: {
       contract_version: 'daily_fortune_ai_first_v2',
       natal: { pillars: [{ position: 'day', gan_zhi: '乙酉' }] },
-      timing: { liuyue: { gan_zhi: '丙戌' } },
-      mingli_interactions: { timing: [{ id: 'liuyue-to-day-branch' }] },
+      mingli_interactions: { natal: [] },
     },
-    forecast_windows: [],
+    time_windows: [{
+      window_key: 'liuyue:2026-08-07:丙戌',
+      kind: 'liuyue',
+      bucket: 'recent_12_liuyue',
+      detail_level: 'evidence',
+      parent_window_keys: ['dayun:2020:乙酉', 'liunian:2026:丙午'],
+      is_current: true,
+      target_window: { valid_from: '2026-08-07', valid_until: '2026-09-06' },
+      timing: { gan_zhi: '丙戌', stem: '丙', branch: '戌', hidden_stems: [] },
+      interaction_rule_version: 'mingli_interactions_v1',
+      interactions: [],
+    }],
     available_fact_refs: [
       { ref: 'natal:pillar:day', valid_from: '1995-08-12', valid_until: null },
-      { ref: 'timing:liuyue', valid_from: '2026-08-07', valid_until: '2026-09-06' },
       {
-        ref: 'interaction:liuyue-to-day-branch',
+        ref: 'time:liuyue:2026-08-07:丙戌:timing',
         valid_from: '2026-08-07',
         valid_until: '2026-09-06',
       },
     ],
-    relationship_status: 'unknown',
+    reality_context: {
+      life_stage: { primary: null, tags: [] },
+      work_study: {
+        mode: null,
+        career_status: null,
+        occupation: null,
+        industry: null,
+        study_status: null,
+        school: null,
+        current_goal: null,
+      },
+      relationship: { status: 'unknown', current_focus: null },
+      saved_understanding: { current_focus: [], expression_preferences: [] },
+    },
     preference_context: {
       recent_14d: [{
         dimension: 'domain', key: 'love', exposures: 4, opens: 2, smoothed_open_rate: 0.375,
@@ -53,6 +75,8 @@ function recommendationInput() {
           question_job: 'forecast',
           content_horizon: 'month',
         },
+        primary_time_window_key: 'liuyue:2026-08-07:丙戌',
+        referenced_window_keys: ['liuyue:2026-08-07:丙戌'],
         opened_at: '2026-08-03T10:00:00.000Z',
       }],
     },
@@ -63,11 +87,19 @@ function recommendationInput() {
       opened: true,
       last_seen_at: '2026-08-02T10:00:00.000Z',
     }],
+    time_window_history: [{
+      window_key: 'liuyue:2026-08-07:丙戌',
+      primary_exposures: 2,
+      primary_opens: 1,
+      last_primary_exposed_at: '2026-08-02T10:00:00.000Z',
+      last_primary_opened_at: '2026-08-02T10:01:00.000Z',
+    }],
   };
 }
 
 function rawCard(index: number, overrides: Record<string, unknown> = {}) {
   return {
+    primary_time_window_key: 'liuyue:2026-08-07:丙戌',
     content_profile: {
       domain: index % 2 === 0 ? 'love' : 'career',
       topic_key: index % 2 === 0 ? 'relationship_progress' : 'career_direction',
@@ -79,7 +111,7 @@ function rawCard(index: number, overrides: Record<string, unknown> = {}) {
       event_family: index === 0 ? 'relationship_progress' : 'adjustment',
       claim_mode: 'conditional',
       summary: `流月引动下值得留意的关系与节奏变化 ${index}`,
-      fact_refs: ['natal:pillar:day', 'timing:liuyue'],
+      fact_refs: ['natal:pillar:day', 'time:liuyue:2026-08-07:丙戌:timing'],
     },
     question: `下个月这件事会怎样发展 ${index}？`,
     preview: `这张卡片根据当前流月和原局事实，说明接下来值得留意的变化 ${index}。`,
@@ -90,13 +122,19 @@ function rawCard(index: number, overrides: Record<string, unknown> = {}) {
 
 function validContent() {
   return {
-    deck_cards: Array.from({ length: 6 }, (_, index) => rawCard(index)),
-    center_cards: Array.from({ length: 3 }, (_, index) => rawCard(index + 6)),
+    candidates: Array.from({ length: 24 }, (_, index) => rawCard(index)),
   };
 }
 
 function providerResponse(content: unknown) {
   return {
+    usageMetadata: {
+      promptTokenCount: 1200,
+      cachedContentTokenCount: 100,
+      candidatesTokenCount: 2400,
+      thoughtsTokenCount: 300,
+      totalTokenCount: 3900,
+    },
     candidates: [{
       finishReason: 'STOP',
       content: { parts: [{ text: JSON.stringify(content) }] },
@@ -129,7 +167,7 @@ async function main(): Promise<void> {
   try {
     let calls = 0;
     let capturedRequest: any;
-    const ids = Array.from({ length: 9 }, (_, index) => `candidate-${index + 1}`);
+    const ids = Array.from({ length: 24 }, (_, index) => `candidate-${index + 1}`);
     const generated = await generateRecommendationCandidatesWithAi(
       recommendationInput(),
       {
@@ -145,13 +183,15 @@ async function main(): Promise<void> {
     assert.equal(calls, 1, '一批卡片只能发起一次 Gemini 调用');
     assert.equal(capturedRequest.model, 'gemini-recommendation-test-pinned');
     assert.equal(capturedRequest.timeoutMs, 90_000);
+    assert.equal(capturedRequest.maxProviderResponseBytes, 256 * 1024);
     assert.equal(capturedRequest.generationConfig.candidateCount, 1);
+    assert.equal(capturedRequest.generationConfig.maxOutputTokens, 16384);
     assert.equal(capturedRequest.generationConfig.responseMimeType, 'application/json');
     assert.deepEqual(capturedRequest.generationConfig.responseJsonSchema, RECOMMENDATION_RESPONSE_SCHEMA);
     assert.ok(capturedRequest.systemPrompt.startsWith(RECOMMENDATION_SYSTEM_PROMPT));
     assert.ok(capturedRequest.systemPrompt.includes('open 只是弱正向兴趣'));
     assert.ok(capturedRequest.systemPrompt.includes('smoothed_open_rate'));
-    assert.ok(capturedRequest.systemPrompt.includes('relationship_status 为 unknown'));
+    assert.ok(capturedRequest.systemPrompt.includes('reality_context.relationship.status 为 unknown'));
     assert.ok(capturedRequest.userPrompt.startsWith(RECOMMENDATION_DEVELOPER_PROMPT));
     assert.ok(capturedRequest.systemPrompt.includes('命理事实决定哪些题材有资格出现'));
     assert.ok(capturedRequest.userPrompt.includes('争吵、分手风险、新桃花'));
@@ -159,41 +199,54 @@ async function main(): Promise<void> {
     const promptInput = JSON.parse(capturedRequest.userPrompt.split('recommendation_input:\n')[1]);
     assert.deepEqual(promptInput, recommendationInput(), '事实、兴趣和历史必须原样进入同一次 AI 调用');
 
-    assert.equal(generated.deck_cards.length, 6);
-    assert.equal(generated.center_cards.length, 3);
-    assert.deepEqual(generated.deck_cards.map((card: any) => card.candidate_id), [
-      'candidate-1', 'candidate-2', 'candidate-3', 'candidate-4', 'candidate-5', 'candidate-6',
-    ]);
-    assert.deepEqual(generated.center_cards.map((card: any) => card.candidate_id), [
-      'candidate-7', 'candidate-8', 'candidate-9',
-    ]);
-    assert.deepEqual(generated.deck_cards.map((card: any) => card.position), [0, 1, 2, 3, 4, 5]);
-    assert.deepEqual(generated.center_cards.map((card: any) => card.position), [0, 1, 2]);
-    assert.ok(generated.deck_cards.every((card: any) => card.surface === 'deck'));
-    assert.ok(generated.center_cards.every((card: any) => card.surface === 'center'));
-    assert.deepEqual(generated.deck_cards[0].validity, {
+    assert.equal(generated.candidates.length, 24);
+    assert.deepEqual(
+      generated.candidates.map((card: any) => card.candidate_id),
+      Array.from({ length: 24 }, (_, index) => `candidate-${index + 1}`),
+    );
+    assert.deepEqual(
+      generated.candidates.map((card: any) => card.pool_position),
+      Array.from({ length: 24 }, (_, index) => index),
+    );
+    assert.ok(generated.candidates.every((card: any) => card.surface === undefined));
+    assert.ok(generated.candidates.every((card: any) => card.position === undefined));
+    assert.equal(generated.candidates[0].primary_time_window_key, 'liuyue:2026-08-07:丙戌');
+    assert.deepEqual(
+      generated.candidates[0].referenced_window_keys,
+      ['liuyue:2026-08-07:丙戌'],
+    );
+    assert.deepEqual(generated.candidates[0].validity, {
       valid_from: '2026-08-07',
       valid_until: '2026-09-06',
     });
-    assert.equal(generated.deck_cards[0].semantic_key, 'love:relationship_progress:forecast:month:relationship_progress');
+    assert.equal(generated.candidates[0].semantic_key, 'love:relationship_progress:forecast:month:relationship_progress');
+    assert.equal(generated.generation_metrics.model_id, 'gemini-recommendation-test-pinned');
+    assert.equal(generated.generation_metrics.prompt_token_count, 1200);
+    assert.equal(generated.generation_metrics.cached_content_token_count, 100);
+    assert.equal(generated.generation_metrics.candidates_token_count, 2400);
+    assert.equal(generated.generation_metrics.thoughts_token_count, 300);
+    assert.equal(generated.generation_metrics.total_token_count, 3900);
+    assert.equal(generated.generation_metrics.finish_reason, 'STOP');
+    assert.ok(generated.generation_metrics.input_json_bytes > 0);
+    assert.ok(generated.generation_metrics.request_bytes > 0);
 
     // This intentionally contains wording that the prompt tells the model not
     // to produce. It is accepted here to prove that the server does not add a
     // keyword blacklist or a second semantic judge after the model response.
     const mechanicalOnly = validContent();
-    mechanicalOnly.deck_cards[0] = rawCard(0, {
+    mechanicalOnly.candidates[0] = rawCard(0, {
       body: '你们一定会分手，这段文字故意测试服务端不会用关键词判断命理语义，而只保存结构正确且引用存在的模型输出。',
     });
-    const idsForSemanticPass = Array.from({ length: 9 }, (_, index) => `semantic-${index}`);
+    const idsForSemanticPass = Array.from({ length: 24 }, (_, index) => `semantic-${index}`);
     const semanticPass = await generateRecommendationCandidatesWithAi(
       recommendationInput(),
       { async generate() { return providerResponse(mechanicalOnly); } },
       () => idsForSemanticPass.shift() as string,
     );
-    assert.ok(semanticPass.deck_cards[0].body.includes('一定会分手'));
+    assert.ok(semanticPass.candidates[0].body.includes('一定会分手'));
 
     const unknownRef = validContent();
-    unknownRef.deck_cards[0].event_hypothesis.fact_refs = ['does-not-exist'];
+    unknownRef.candidates[0].event_hypothesis.fact_refs = ['does-not-exist'];
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
@@ -202,8 +255,54 @@ async function main(): Promise<void> {
       'invalid_schema',
     );
 
+    const inventedPrimaryWindow = validContent();
+    inventedPrimaryWindow.candidates[0].primary_time_window_key = 'liuyue:2099-01-01:甲子';
+    await expectAiError(
+      generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(inventedPrimaryWindow); } },
+      ),
+      'invalid_schema',
+    );
+
+    const wrongPrimaryGranularity = validContent();
+    wrongPrimaryGranularity.candidates[0].content_profile = {
+      ...wrongPrimaryGranularity.candidates[0].content_profile,
+      content_horizon: 'year',
+    };
+    await expectAiError(
+      generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(wrongPrimaryGranularity); } },
+      ),
+      'invalid_schema',
+    );
+
+    const natalBaseline = validContent();
+    natalBaseline.candidates[0] = rawCard(0, {
+      primary_time_window_key: 'natal',
+      content_profile: {
+        domain: 'love',
+        topic_key: 'love_overview',
+        question_job: 'describe',
+        content_horizon: 'baseline',
+      },
+      event_hypothesis: {
+        event_family: 'baseline_pattern',
+        claim_mode: 'description',
+        summary: '原局事实支持的长期关系模式与偏好说明。',
+        fact_refs: ['natal:pillar:day'],
+      },
+    });
+    const natalPass = await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      { async generate() { return providerResponse(natalBaseline); } },
+    );
+    assert.equal(natalPass.candidates[0].primary_time_window_key, null);
+    assert.deepEqual(natalPass.candidates[0].referenced_window_keys, []);
+
     const extraProperty = validContent() as any;
-    extraProperty.deck_cards[0].rank_score = 1;
+    extraProperty.candidates[0].rank_score = 1;
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
@@ -212,59 +311,64 @@ async function main(): Promise<void> {
       'invalid_schema',
     );
 
-    const tooFewCenterCards = validContent();
-    tooFewCenterCards.center_cards = tooFewCenterCards.center_cards.slice(0, 2);
+    const tooFewCandidates = validContent();
+    tooFewCandidates.candidates = tooFewCandidates.candidates.slice(0, 23);
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
-        { async generate() { return providerResponse(tooFewCenterCards); } },
+        { async generate() { return providerResponse(tooFewCandidates); } },
       ),
       'invalid_schema',
     );
 
-    const tooManyDeckCards = validContent();
-    tooManyDeckCards.deck_cards.push(rawCard(9));
+    const tooManyCandidates = validContent();
+    tooManyCandidates.candidates.push(rawCard(24));
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
-        { async generate() { return providerResponse(tooManyDeckCards); } },
+        { async generate() { return providerResponse(tooManyCandidates); } },
       ),
       'invalid_schema',
     );
 
     const futureFactReference = validContent();
-    futureFactReference.deck_cards[0].event_hypothesis.fact_refs = ['forecast:next_liuyue:timing:liuyue'];
+    futureFactReference.candidates[0].event_hypothesis.fact_refs = [
+      'time:liuyue:2026-09-07:丁亥:timing',
+    ];
+    futureFactReference.candidates[0].primary_time_window_key = 'liuyue:2026-09-07:丁亥';
     const inputWithFutureFact: any = recommendationInput();
     inputWithFutureFact.available_fact_refs.push({
-      ref: 'forecast:next_liuyue:timing:liuyue',
-      valid_from: '2026-08-09',
-      valid_until: '2026-09-06',
+      ref: 'time:liuyue:2026-09-07:丁亥:timing',
+      valid_from: '2026-09-07',
+      valid_until: '2026-10-07',
     });
-    inputWithFutureFact.forecast_windows = [{
-      window_key: 'next_liuyue',
-      label: '下一个流月',
-      target_window: { valid_from: '2026-08-09', valid_until: '2026-09-06' },
-      fact_ref_prefix: 'forecast:next_liuyue:',
-      fortune_facts: {
-        contract_version: 'daily_fortune_ai_first_v2',
-        effective_date: '2026-08-09',
-        timing: { liuyue: { gan_zhi: '丁亥' } },
-      },
-    }];
+    inputWithFutureFact.time_windows.push({
+      window_key: 'liuyue:2026-09-07:丁亥',
+      kind: 'liuyue',
+      bucket: 'recent_12_liuyue',
+      detail_level: 'evidence',
+      parent_window_keys: ['dayun:2020:乙酉', 'liunian:2026:丙午'],
+      is_current: false,
+      target_window: { valid_from: '2026-09-07', valid_until: '2026-10-07' },
+      timing: { gan_zhi: '丁亥', stem: '丁', branch: '亥', hidden_stems: [] },
+      interaction_rule_version: 'mingli_interactions_v1',
+      interactions: [],
+    });
     const futurePass = await generateRecommendationCandidatesWithAi(
       inputWithFutureFact,
       { async generate() { return providerResponse(futureFactReference); } },
     );
-    assert.deepEqual(futurePass.deck_cards[0].validity, {
-      valid_from: '2026-08-09',
-      valid_until: '2026-09-06',
-    }, '今天展示的卡可以引用下一个流月的事实窗口');
+    assert.deepEqual(futurePass.candidates[0].validity, {
+      valid_from: '2026-09-07',
+      valid_until: '2026-10-07',
+    }, '今天展示的卡可以引用通用未来流月事实窗口');
 
     const noSharedTargetWindow = validContent();
-    noSharedTargetWindow.deck_cards[0].event_hypothesis.fact_refs = [
+    noSharedTargetWindow.candidates[0].event_hypothesis.fact_refs = [
       'timing:past',
-      'forecast:next_liuyue:timing:liuyue',
+      'time:liuyue:2026-09-07:丁亥:timing',
     ];
+    noSharedTargetWindow.candidates[0].primary_time_window_key = 'liuyue:2026-09-07:丁亥';
     inputWithFutureFact.available_fact_refs.push({
       ref: 'timing:past',
       valid_from: '2026-08-01',
@@ -289,7 +393,7 @@ async function main(): Promise<void> {
     delete process.env.RECOMMENDATION_AI_TIMEOUT_MS;
 
     const invalidEnum = validContent() as any;
-    invalidEnum.deck_cards[0].selection_role = 'p0_semantic_guard';
+    invalidEnum.candidates[0].selection_role = 'p0_semantic_guard';
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
@@ -299,8 +403,8 @@ async function main(): Promise<void> {
     );
 
     const mismatchedTopic = validContent() as any;
-    mismatchedTopic.deck_cards[0].content_profile = {
-      ...mismatchedTopic.deck_cards[0].content_profile,
+    mismatchedTopic.candidates[0].content_profile = {
+      ...mismatchedTopic.candidates[0].content_profile,
       domain: 'love',
       topic_key: 'career_direction',
     };

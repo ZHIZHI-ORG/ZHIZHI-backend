@@ -60,6 +60,8 @@ export interface PillarData {
 export interface MajorCycleData {
   startYear: number;  // 起始年份
   endYear: number;    // 结束年份
+  startDate?: string; // 精确起始日（YYYY-MM-DD，含）
+  endDate?: string;   // 下一大运起始日（YYYY-MM-DD，不含）
   age: number;        // 起始年龄
   endAge: number;     // 结束年龄
   stem: string;       // 天干（如"乙"）
@@ -78,6 +80,8 @@ export interface MajorCycleData {
 /** 流年数据（对应 simple.md §10.5 AnnualLuck） */
 export interface AnnualLuckData {
   year: number;           // 年份
+  startDate?: string;     // 当年立春（YYYY-MM-DD，含）
+  endDate?: string;       // 下一年立春（YYYY-MM-DD，不含）
   age: number;            // 年龄
   stem: string;           // 天干
   branch: string;         // 地支
@@ -586,13 +590,21 @@ export async function calculateFullChart(
   const startDate = startSolar ? startSolar.toYmd() : '';
   const isForward = yun.isForward();
 
-  const majorCycles: MajorCycleData[] = daYunList.slice(0, 10).map((dy: any) => {
+  const majorCycles: MajorCycleData[] = daYunList.slice(0, 10).map((dy: any, index: number) => {
     const gz = dy.getGanZhi() || '童限';
     const stem = gz === '童限' ? '' : (gz[0] || '');
     const branch = gz === '童限' ? '' : (gz[1] || '');
+    const exactStartDate = index === 0
+      ? solar.toYmd()
+      : startSolar?.nextYear?.((index - 1) * 10)?.toYmd?.();
+    const exactEndDate = index === 0
+      ? startDate
+      : startSolar?.nextYear?.(index * 10)?.toYmd?.();
     return {
       startYear: dy.getStartYear(),
       endYear: dy.getEndYear(),
+      ...(exactStartDate ? { startDate: exactStartDate } : {}),
+      ...(exactEndDate ? { endDate: exactEndDate } : {}),
       age: dy.getStartAge(),
       endAge: dy.getEndAge(),
       stem,
@@ -740,9 +752,11 @@ export function ensureChartLuckMetadata(chart: any, fallbackDayMaster?: string):
     }
   });
 
+  ensureMajorCycleDateBoundaries(chart);
   (chart.majorCycles || []).forEach((cycle: any) => {
     enrichLuckItem(cycle, dayMaster);
     (cycle.annualLuck || cycle.annual_luck || []).forEach((annual: any) => {
+      ensureAnnualLuckDateBoundaries(annual);
       enrichLuckItem(annual, dayMaster);
       (annual.monthlyLuck || annual.monthly_luck || []).forEach((monthly: any) => {
         enrichLuckItem(monthly, dayMaster);
@@ -751,6 +765,108 @@ export function ensureChartLuckMetadata(chart: any, fallbackDayMaster?: string):
   });
 
   return chart;
+}
+
+/** Selects the exact active 大运 using its inclusive/exclusive date range. */
+export function selectMajorCycleByDate(
+  cycles: readonly MajorCycleData[],
+  day: string,
+): MajorCycleData | undefined {
+  return cycles.find((cycle) => containsExclusiveDate(cycle, day));
+}
+
+/** Selects the exact 立春-based 流年 independently from its storage cycle. */
+export function selectAnnualLuckByDate(
+  cycles: readonly MajorCycleData[],
+  day: string,
+): AnnualLuckData | undefined {
+  for (const cycle of cycles) {
+    const annual = (cycle.annualLuck || []).find((item) => containsExclusiveDate(item, day));
+    if (annual) return annual;
+  }
+  return undefined;
+}
+
+function ensureMajorCycleDateBoundaries(chart: any): void {
+  const cycles = Array.isArray(chart?.majorCycles) ? chart.majorCycles : [];
+  const firstCycleStart = datePrefix(chart?.startDate);
+  if (!firstCycleStart || cycles.length === 0) return;
+  const birthDate = datePrefix(chart?.solar);
+
+  cycles.forEach((cycle: any, index: number) => {
+    const startDate = index === 0
+      ? birthDate
+      : addSolarYears(firstCycleStart, (index - 1) * 10);
+    const endDate = index === 0
+      ? firstCycleStart
+      : addSolarYears(firstCycleStart, index * 10);
+    if (startDate) cycle.startDate = startDate;
+    if (endDate) cycle.endDate = endDate;
+  });
+}
+
+function ensureAnnualLuckDateBoundaries(annual: any): void {
+  const year = Number(annual?.year);
+  if (!Number.isInteger(year)) return;
+  const months = annual.monthlyLuck || annual.monthly_luck || [];
+  if (
+    isYmd(annual.startDate)
+    && isYmd(annual.endDate)
+    && annual.endDate > annual.startDate
+    && months.length > 0
+    && months.every((monthly: any) => (
+      isYmd(monthly.startDate)
+      && isYmd(monthly.endDate)
+      && monthly.endDate > monthly.startDate
+    ))
+  ) return;
+
+  const currentTerms = jieQiTableForYear(year);
+  const nextTerms = jieQiTableForYear(year + 1);
+  const startDate = currentTerms['立春']?.toYmd?.();
+  const endDate = nextTerms['立春']?.toYmd?.();
+  if (startDate) annual.startDate = startDate;
+  if (endDate) annual.endDate = endDate;
+
+  months.forEach((monthly: any, index: number) => {
+    const ordinal = Number.isInteger(monthly?.month) && monthly.month >= 1 && monthly.month <= 12
+      ? monthly.month - 1
+      : index;
+    const startTerm = LIUYUE_START_TERMS[ordinal];
+    const nextTerm = LIUYUE_START_TERMS[ordinal + 1];
+    const monthStart = currentTerms[startTerm]?.toYmd?.();
+    const monthEnd = ordinal === LIUYUE_START_TERMS.length - 1
+      ? endDate
+      : currentTerms[nextTerm]?.toYmd?.();
+    if (monthStart) monthly.startDate = monthStart;
+    if (monthEnd) monthly.endDate = monthEnd;
+  });
+}
+
+function containsExclusiveDate(
+  item: { startDate?: string; endDate?: string },
+  day: string,
+): boolean {
+  return isYmd(item.startDate)
+    && isYmd(item.endDate)
+    && item.startDate <= day
+    && day < item.endDate;
+}
+
+function datePrefix(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const candidate = value.slice(0, 10);
+  return isYmd(candidate) ? candidate : null;
+}
+
+function isYmd(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function addSolarYears(day: string, years: number): string | null {
+  const [year, month, date] = day.split('-').map(Number);
+  if (![year, month, date].every(Number.isInteger)) return null;
+  return Solar.fromYmdHms(year, month, date, 12, 0, 0).nextYear(years).toYmd();
 }
 
 function enrichLuckItem(item: any, dayMaster: string): any {
@@ -1037,8 +1153,13 @@ function buildLiuNianList(dayGan: string, daYun: any): AnnualLuckData[] {
 
 function buildLiuNianData(dayGan: string, liuNian: any): AnnualLuckData {
   const gz: string = liuNian.getGanZhi?.() || '';
+  const monthlyLuck = buildLiuYueList(dayGan, liuNian);
   return {
     year: liuNian.getYear(),
+    ...(monthlyLuck[0]?.startDate ? { startDate: monthlyLuck[0].startDate } : {}),
+    ...(monthlyLuck[monthlyLuck.length - 1]?.endDate
+      ? { endDate: monthlyLuck[monthlyLuck.length - 1].endDate }
+      : {}),
     age: liuNian.getAge?.() || 0,
     stem: gz[0] || '',
     branch: gz[1] || '',
@@ -1051,29 +1172,48 @@ function buildLiuNianData(dayGan: string, liuNian: any): AnnualLuckData {
     naYin: LunarUtil.NAYIN?.[gz] || '',
     xun: liuNian.getXun?.() || '',
     xunKong: liuNian.getXunKong?.() || '',
-    monthlyLuck: buildLiuYueList(dayGan, liuNian),
+    monthlyLuck,
   };
 }
 
 const LIUYUE_START_TERMS = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', 'XIAO_HAN'];
 const LIUYUE_START_TERM_LABELS = ['立春', '惊蛰', '清明', '立夏', '芒种', '小暑', '立秋', '白露', '寒露', '立冬', '大雪', '小寒'];
+const JIE_QI_TABLE_CACHE = new Map<number, any>();
+const JIE_QI_TABLE_CACHE_LIMIT = 256;
+
+function jieQiTableForYear(year: number): any {
+  const cached = JIE_QI_TABLE_CACHE.get(year);
+  if (cached) return cached;
+  const table = Solar.fromYmdHms(year, 7, 1, 12, 0, 0).getLunar().getJieQiTable();
+  if (JIE_QI_TABLE_CACHE.size >= JIE_QI_TABLE_CACHE_LIMIT) {
+    const oldest = JIE_QI_TABLE_CACHE.keys().next().value;
+    if (oldest !== undefined) JIE_QI_TABLE_CACHE.delete(oldest);
+  }
+  JIE_QI_TABLE_CACHE.set(year, table);
+  return table;
+}
 
 function buildLiuYueList(dayGan: string, liuNian: any): MonthlyLuckData[] {
   const liuYue = liuNian.getLiuYue?.() || [];
   const liuNianYear = Number(liuNian.getYear?.());
   const jieQiTable = Number.isFinite(liuNianYear)
-    ? Solar.fromYmdHms(liuNianYear, 7, 1, 12, 0, 0).getLunar().getJieQiTable()
+    ? jieQiTableForYear(liuNianYear)
+    : {};
+  const nextJieQiTable = Number.isFinite(liuNianYear)
+    ? jieQiTableForYear(liuNianYear + 1)
     : {};
   return liuYue.map((ly: any, i: number) => {
     const gz: string = ly.getGanZhi?.() || '';
     const startTerm = LIUYUE_START_TERMS[i];
-    const endTerm = LIUYUE_START_TERMS[(i + 1) % LIUYUE_START_TERMS.length];
+    const endTerm = LIUYUE_START_TERMS[i + 1];
     return {
       month: i + 1,
       monthInChinese: ly.getMonthInChinese?.() || '',
       solarTerm: LIUYUE_START_TERM_LABELS[i],
       startDate: jieQiTable[startTerm]?.toYmd?.(),
-      endDate: jieQiTable[endTerm]?.toYmd?.(),
+      endDate: i === LIUYUE_START_TERMS.length - 1
+        ? nextJieQiTable['立春']?.toYmd?.()
+        : jieQiTable[endTerm]?.toYmd?.(),
       stem: gz[0] || '',
       branch: gz[1] || '',
       ganZhi: gz,

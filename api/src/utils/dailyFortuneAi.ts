@@ -116,7 +116,7 @@ export const DAILY_FORTUNE_RESPONSE_SCHEMA = {
 
 // 首页日运按日缓存，首次生成允许完整完成，不以即时返回换取截断或重试。
 const DEFAULT_TIMEOUT_MS = 90_000;
-const MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024;
+const DEFAULT_MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024;
 const MAX_CONTENT_JSON_BYTES = 32 * 1024;
 
 export type DailyFortuneAiErrorCode =
@@ -151,6 +151,8 @@ export class DailyFortuneAiError extends Error {
 export interface DailyFortuneAiTransportRequest {
   model: string;
   timeoutMs: number;
+  /** Endpoint-specific envelope limit; daily fortune keeps the 64 KB default. */
+  maxProviderResponseBytes?: number;
   systemPrompt: string;
   userPrompt: string;
   generationConfig: {
@@ -196,6 +198,15 @@ export class GeminiDailyFortuneTransport implements DailyFortuneAiTransport {
       );
     }
 
+    const maxProviderResponseBytes = request.maxProviderResponseBytes
+      ?? DEFAULT_MAX_PROVIDER_RESPONSE_BYTES;
+    if (!Number.isSafeInteger(maxProviderResponseBytes) || maxProviderResponseBytes < 1) {
+      throw new DailyFortuneAiError(
+        'configuration',
+        'maxProviderResponseBytes must be a positive integer',
+        false
+      );
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), request.timeoutMs);
 
@@ -241,7 +252,7 @@ export class GeminiDailyFortuneTransport implements DailyFortuneAiTransport {
       const declaredLength = Number(response.headers.get('content-length'));
       if (
         Number.isFinite(declaredLength) &&
-        declaredLength > MAX_PROVIDER_RESPONSE_BYTES
+        declaredLength > maxProviderResponseBytes
       ) {
         throw new DailyFortuneAiError(
           'response_too_large',
@@ -270,7 +281,7 @@ export class GeminiDailyFortuneTransport implements DailyFortuneAiTransport {
           response.status
         );
       }
-      if (byteLength(rawBody) > MAX_PROVIDER_RESPONSE_BYTES) {
+      if (byteLength(rawBody) > maxProviderResponseBytes) {
         throw new DailyFortuneAiError(
           'response_too_large',
           'Daily fortune AI response exceeded the size limit',

@@ -36,11 +36,11 @@
 | [SUPABASE-SETUP-GUIDE.md](../SUPABASE-SETUP-GUIDE.md) | SUPERSEDED | HISTORICAL | COMMITTED | 2026-07-11 | 早期 Supabase 操作教程 | Low | 仍描述 `profiles/contents/comments/likes` |
 | [VERCEL-DEPLOYMENT-GUIDE.md](../VERCEL-DEPLOYMENT-GUIDE.md) | HISTORICAL | HISTORICAL | COMMITTED | 2026-07-11 | 早期 Vercel 入门教程 | Low | 固定本机路径和旧项目描述 |
 | [docs/README.md](README.md) | CURRENT | EXPERIMENTAL | WORKTREE | 2026-08-03 | 文档权威、发布与证据导航 | High | 全仓 Markdown 清单 |
-| [docs/current-backend-implementation.md](current-backend-implementation.md) | CURRENT | EXPERIMENTAL | COMMITTED | 2026-08-03 | 当前实现、依赖、阶段计划和验收 | Critical | routes、handlers、services、migrations 002-013、tests |
+| [docs/current-backend-implementation.md](current-backend-implementation.md) | CURRENT | EXPERIMENTAL | WORKTREE | 2026-08-03 | 当前实现、依赖、阶段计划和验收 | Critical | routes、handlers、services、migrations 002-014、tests |
 | [docs/day-master-wangshuai-fact-layer-rules.md](day-master-wangshuai-fact-layer-rules.md) | ROADMAP | EXPERIMENTAL | COMMITTED | 2026-07-11 | 旺衰事实层规则与校准计划 | Medium | 现有 `dayMasterStrength` + 文档规划 |
 | [docs/designs/bazi-ai-mingli-architecture-v2.md](designs/bazi-ai-mingli-architecture-v2.md) | ROADMAP | EXPERIMENTAL | COMMITTED | 2026-07-11 | 命理 AI 目标架构和分期 | High | 文档已明确未进入完整实现 |
 | [docs/designs/home-daily-fortune-v2.md](designs/home-daily-fortune-v2.md) | CURRENT | SHIPPABLE | WORKTREE | 2026-07-23 | 首页日运 V2 的产品合同、流程、缓存和上线顺序 | Critical | V2 handler、service、artifact migration、专项测试、iOS build |
-| [docs/designs/zhizhi-ai-personalization-question-planning-architecture.md](designs/zhizhi-ai-personalization-question-planning-architecture.md) | CURRENT | EXPERIMENTAL | COMMITTED | 2026-08-03 | Recommendation V1 的事实、AI 编排、行为记忆与验收合同 | Critical | Recommendation model/AI/service/migration/routes/eval；线上未验证 |
+| [docs/designs/zhizhi-ai-personalization-question-planning-architecture.md](designs/zhizhi-ai-personalization-question-planning-architecture.md) | CURRENT | EXPERIMENTAL | WORKTREE | 2026-08-03 | Recommendation V1 的有界时间检索、24 张候选池、展示编排、内容/时间记忆与验收合同 | Critical | Recommendation model/AI/service/migrations 013-014/routes/eval；线上未验证 |
 | [docs/mingli-classical-structure-facts.md](mingli-classical-structure-facts.md) | SUPERSEDED | HISTORICAL | COMMITTED | 2026-07-11 | 早期月令结构事实规划 | Medium | 当前 `zipingStructureFacts.ts` 合同更完整 |
 | [docs/mingli-fact-layer-rules.md](mingli-fact-layer-rules.md) | PARTIAL | EXPERIMENTAL | WORKTREE | 2026-07-11 | 命理事实层规则、边界和展示方案 | High | calculators、interaction engine、tests |
 | [docs/mingli-pattern-judgement-rules.md](mingli-pattern-judgement-rules.md) | PARTIAL | EXPERIMENTAL | COMMITTED | 2026-07-11 | 格局候选与判断阶段 | High | `patternJudgement.ts`、相关测试 |

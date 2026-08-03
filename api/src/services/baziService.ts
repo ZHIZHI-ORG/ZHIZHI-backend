@@ -26,6 +26,8 @@ import {
   calculateSelfSitting,
   ensureChartLuckMetadata,
   calculateWeightedWuxingFromChart,
+  selectAnnualLuckByDate,
+  selectMajorCycleByDate,
 } from '../utils/baziCalculator';
 import {
   buildMingliGanZhiEffectsBrief,
@@ -604,6 +606,8 @@ function mapMajorCycle(cycle: any, index: number) {
     id: `${cycle.startYear || 'unknown'}-${cycle.ganZhi || index}`,
     start_year: cycle.startYear,
     end_year: cycle.endYear,
+    start_date: cycle.startDate || null,
+    end_date: cycle.endDate || null,
     age_start: cycle.age,
     age_end: cycle.endAge,
     stem: cycle.stem,
@@ -628,6 +632,8 @@ function mapAnnualLuck(item: any) {
   return {
     id: `${item.year}-${item.ganZhi}`,
     year: item.year,
+    start_date: item.startDate || null,
+    end_date: item.endDate || null,
     age: item.age,
     stem: item.stem,
     branch: item.branch,
@@ -796,13 +802,18 @@ function buildBaziLuckTimelineFromProfile(
   const chart = getChart(profile);
   const interactionChart = projectChartToActualNatalPillars(chart, hasKnownBirthHour(profile));
   const requestedDay = query.day || formatDateForLuck(new Date());
-  const year = query.year || Number(requestedDay.slice(0, 4));
+  const calendarYear = Number(requestedDay.slice(0, 4));
   const majorCycles = (chart.majorCycles || []) as any[];
-  const activeCycle = majorCycles.find((cycle) => year >= cycle.startYear && year <= cycle.endYear)
+  const activeCycle = selectMajorCycleByDate(majorCycles, requestedDay)
+    || majorCycles.find((cycle) => calendarYear >= cycle.startYear && calendarYear <= cycle.endYear)
     || majorCycles[0];
   const annualLucks = (activeCycle?.annualLuck || []).map(mapAnnualLuck);
-  const selectedAnnual = (activeCycle?.annualLuck || []).find((item: any) => item.year === year)
+  const selectedAnnual = (query.year !== undefined
+    ? majorCycles.flatMap((cycle) => cycle.annualLuck || []).find((item: any) => item.year === query.year)
+    : selectAnnualLuckByDate(majorCycles, requestedDay))
+    || (activeCycle?.annualLuck || []).find((item: any) => item.year === calendarYear)
     || activeCycle?.annualLuck?.[0];
+  const year = selectedAnnual?.year || query.year || calendarYear;
   const selectedMonth = selectMonthlyLuck(selectedAnnual?.monthlyLuck || [], query.month, requestedDay);
   const selectedDay = resolveSelectedDay(query.day, requestedDay, selectedMonth);
   const selectedDaily = buildDailyLuckData(chart.dayMaster || profile.day_master || '', selectedDay);

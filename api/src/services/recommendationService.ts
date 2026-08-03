@@ -7,19 +7,31 @@ import {
   recommendationRepository,
 } from '../database/repositories/RecommendationRepository';
 import {
+  RECOMMENDATION_CANDIDATE_POOL_SIZE,
+  RECOMMENDATION_CANDIDATE_POOL_VERSION,
   RECOMMENDATION_CONTRACT_VERSION,
+  RECOMMENDATION_DISPLAY_CENTER_COUNT,
+  RECOMMENDATION_DISPLAY_DECK_COUNT,
+  RECOMMENDATION_ORCHESTRATOR_VERSION,
   RECOMMENDATION_PROMPT_VERSION,
   RECOMMENDATION_TAXONOMY_VERSION,
   RecommendationAiInput,
   RecommendationBatch,
+  RecommendationBatchCards,
   RecommendationBatchResponse,
   RecommendationBehaviorEventType,
+  RecommendationCandidate,
+  RecommendationCandidatePool,
   RecommendationInterestSignal,
   RecommendationNextRequest,
   RecommendationNextResponse,
   RecommendationRelationshipStatus,
   RecommendationFactReference,
-  RecommendationForecastWindow,
+  RecommendationHardFactPackage,
+  RecommendationPreferenceContext,
+  RecommendationRealityContext,
+  RecommendationSelectionContext,
+  RecommendationTimeWindow,
 } from '../models/Recommendation';
 import { userRepository } from '../database/repositories/UserRepository';
 import { getBaziDailyFortuneEngineBundle } from './baziService';
@@ -28,7 +40,7 @@ import {
   DailyFortuneFactError,
   resolveDailyFortuneDate,
 } from './dailyFortuneService';
-import { DailyFortuneFactPackage, DailyFortuneMingliInteraction } from '../models/DailyFortune';
+import { DailyFortuneFactPackage } from '../models/DailyFortune';
 import { BaziProfile } from '../models/BaziProfile';
 import {
   DailyFortuneAiError,
@@ -37,8 +49,14 @@ import {
   generateRecommendationCandidatesWithAi,
 } from '../utils/recommendationAi';
 import { NotFoundError, ValidationError } from '../utils/errors';
+import {
+  buildRecommendationTimeWindows,
+  projectRecommendationInteraction,
+  projectRecommendationPillar,
+  RecommendationTimeWindowBudgetError,
+} from './recommendationTimeWindows';
 
-const OUTPUT_SCHEMA_VERSION = 'recommendation_output_v1';
+const OUTPUT_SCHEMA_VERSION = 'recommendation_output_v2';
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const DEFAULT_JOIN_RETRY_MS = 1_000;
 const RECOMMENDATION_GENERATION_LEASE_TTL_SECONDS = 150;
@@ -73,6 +91,7 @@ interface RecommendationServiceDependencies {
     'claim'
       | 'findById'
       | 'finalize'
+      | 'createPoolContinuation'
       | 'markRetryWait'
       | 'release'
       | 'getPreferenceSnapshot'
@@ -161,21 +180,7 @@ async function resolveRecommendationsWithDependencies(
     return unavailable('GENERATION_DISABLED', false);
   }
 
-  // This is a second deterministic fact read, not a second AI decision.  It
-  // gives the one recommendation call a concrete next-liuyue window when the
-  // engine can provide one, so "下个月会怎样" is grounded in that month's
-  // actual timing/interactions instead of asking the model to extrapolate
-  // today's facts.  A missing future package simply leaves this optional
-  // window out; current facts remain the minimum contract.
-  const forecastWindows = await buildNextLiuyueForecastWindow({
-    dependencies,
-    userId,
-    profileId: input.bazi_profile_id,
-    timezone: input.timezone,
-    currentFacts: facts,
-    currentEffectiveDate: dateContext.effectiveDate,
-    user,
-  });
+  const realityContext = buildRealityContext(facts);
 
   // This is the recommendation content identity for a profile, not merely its
   // updated_at timestamp. It changes when deterministic birth/chart facts or
@@ -186,7 +191,7 @@ async function resolveRecommendationsWithDependencies(
     prompt_version: RECOMMENDATION_PROMPT_VERSION,
     taxonomy_version: RECOMMENDATION_TAXONOMY_VERSION,
     profile: profileRevisionPayload(bundle.profile),
-    user_context: facts.user_context,
+    reality_context: realityContext,
   }));
 
   // A batch only continues within the same live local recommendation day.
@@ -198,8 +203,8 @@ async function resolveRecommendationsWithDependencies(
   // rather than a capped raw-event list. An active user's 501st recent event
   // must not erase a still-relevant open from earlier in the same 90-day window.
   const preferenceNow = dependencies.now();
-  const [afterBatchId, preferenceSnapshot] = await Promise.all([
-    activeAfterBatchId(
+  const [afterBatch, preferenceSnapshot] = await Promise.all([
+    activeAfterBatch(
       dependencies,
       userId,
       input.bazi_profile_id,
@@ -215,12 +220,54 @@ async function resolveRecommendationsWithDependencies(
       now: preferenceNow.toISOString(),
     }),
   ]);
+  const afterBatchId = afterBatch?.id ?? null;
+
+  if (afterBatch?.candidate_pool_json) {
+    let continuationCards: RecommendationBatchCards;
+    try {
+      continuationCards = selectPoolContinuationCards(
+        afterBatch,
+        preferenceSnapshot,
+      );
+    } catch {
+      return unavailable('CANDIDATE_POOL_INVALID', false, afterBatch.id);
+    }
+    const continuationId = await dependencies.batches.createPoolContinuation({
+      userId,
+      sourceBatchId: afterBatch.id,
+      cards: continuationCards,
+      selectionContext: buildSelectionContext(preferenceSnapshot, 'pool_continuation'),
+    });
+    const continuation = await requiredBatch(dependencies, userId, continuationId);
+    if (!isEffectiveDateCurrent(dependencies, input.timezone, dateContext.effectiveDate)) {
+      return unavailable('DATE_ROLLED_OVER', true);
+    }
+    return readyResult(continuation, dateContext.nextBoundaryAt);
+  }
+
+  let timeWindows: RecommendationTimeWindow[];
+  try {
+    // The complete timeline stays server-side. Only the bounded current,
+    // near-term, parent, and one freshness-aware exploration window enter this
+    // AI call; the selector itself contains no astrology importance rules.
+    timeWindows = buildRecommendationTimeWindows({
+      profile: bundle.profile,
+      currentFacts: facts,
+      timeWindowHistory: preferenceSnapshot.time_window_history,
+    });
+  } catch (error) {
+    if (error instanceof RecommendationTimeWindowBudgetError) {
+      return unavailable('TIME_WINDOW_BUDGET_EXCEEDED', false);
+    }
+    throw error;
+  }
+
   const aiInput = buildRecommendationAiInput({
     facts,
     effectiveDate: dateContext.effectiveDate,
     timezone: input.timezone,
-    forecastWindows,
-    relationshipStatus: normalizeRelationshipStatus(facts),
+    timeWindows,
+    realityContext,
     preferenceSnapshot,
   });
   const inputHash = sha256(canonicalJson(aiInput));
@@ -289,8 +336,9 @@ async function resolveRecommendationsWithDependencies(
   }
 
   if (claim.outcome === 'daily_limit') {
-    // This only limits new AI batch rows. It never judges the cards' meaning
-    // or preference, and it does not block a join/retry of an existing batch.
+    // This limits new recommendation batch rows. V2 pool continuations also
+    // count toward this conservative per-user abuse limit, although only AI
+    // roots reserve provider-attempt cost. It never judges card semantics.
     return unavailable('DAILY_BATCH_LIMIT_REACHED', false);
   }
 
@@ -304,9 +352,9 @@ async function resolveRecommendationsWithDependencies(
 
   const batchId = requireText(claim.batchId, 'Recommendation owner claim 缺少 batch id');
   const leaseToken = requireText(claim.leaseToken, 'Recommendation owner claim 缺少 lease token');
-  let cards;
+  let generatedPool;
   try {
-    cards = await dependencies.generateCandidates(aiInput);
+    generatedPool = await dependencies.generateCandidates(aiInput);
   } catch (error) {
     const failure = classifyAiFailure(error);
     if (process.env.NODE_ENV === 'production' && error instanceof DailyFortuneAiError) {
@@ -344,6 +392,16 @@ async function resolveRecommendationsWithDependencies(
     );
   }
 
+  const candidatePool: RecommendationCandidatePool = {
+    pool_version: RECOMMENDATION_CANDIDATE_POOL_VERSION,
+    candidates: generatedPool.candidates,
+  };
+  const cards = selectDisplayCards(
+    candidatePool.candidates,
+    preferenceSnapshot,
+    'ai_generation',
+  );
+
   const finalized = await dependencies.batches.finalize({
     batchId,
     userId,
@@ -351,6 +409,9 @@ async function resolveRecommendationsWithDependencies(
     leaseEpoch: claim.leaseEpoch,
     inputSnapshot: aiInput,
     cards,
+    candidatePool,
+    selectionContext: buildSelectionContext(preferenceSnapshot, 'ai_generation'),
+    generationMetrics: generatedPool.generation_metrics,
     promptVersion: RECOMMENDATION_PROMPT_VERSION,
     outputSchemaVersion: OUTPUT_SCHEMA_VERSION,
     taxonomyVersion: RECOMMENDATION_TAXONOMY_VERSION,
@@ -420,7 +481,7 @@ async function getRecommendationBatchWithDependencies(
   };
 }
 
-async function activeAfterBatchId(
+async function activeAfterBatch(
   dependencies: RecommendationServiceDependencies,
   userId: string,
   profileId: string,
@@ -428,7 +489,7 @@ async function activeAfterBatchId(
   effectiveDate: string,
   profileRevisionHash: string,
   timezone: string,
-): Promise<string | null> {
+): Promise<RecommendationBatchRow | null> {
   if (!requestedBatchId) return null;
   const prior = await dependencies.batches.findById(userId, requestedBatchId);
   if (
@@ -442,7 +503,7 @@ async function activeAfterBatchId(
   ) {
     return null;
   }
-  return requestedBatchId;
+  return prior;
 }
 
 async function recordRecommendationEventWithDependencies(
@@ -469,213 +530,86 @@ function buildRecommendationAiInput(input: {
   facts: DailyFortuneFactPackage;
   effectiveDate: string;
   timezone: string;
-  forecastWindows: RecommendationForecastWindow[];
-  relationshipStatus: RecommendationRelationshipStatus;
+  timeWindows: RecommendationTimeWindow[];
+  realityContext: RecommendationRealityContext;
   preferenceSnapshot: RecommendationPreferenceSnapshot;
 }): RecommendationAiInput {
-  const currentFactRefs = buildFactReferences(input.facts, input.effectiveDate);
-  const forecastFactRefs = input.forecastWindows.flatMap((window) => restrictFactReferencesToTargetWindow(
-    buildFactReferences(
-      window.fortune_facts,
-      window.target_window.valid_from,
-      { prefix: window.fact_ref_prefix, includeNatal: false },
-    ),
-    window.target_window,
-  ));
+  const hardFacts = projectRecommendationHardFacts(input.facts);
+  const availableFactRefs = [
+    ...buildNatalFactReferences(hardFacts),
+    ...input.timeWindows.flatMap(buildTimeWindowFactReferences),
+  ];
   return {
     contract_version: RECOMMENDATION_CONTRACT_VERSION,
     taxonomy_version: RECOMMENDATION_TAXONOMY_VERSION,
     effective_date: input.effectiveDate,
     timezone: input.timezone,
-    fortune_facts: input.facts,
-    forecast_windows: input.forecastWindows,
-    available_fact_refs: [...currentFactRefs, ...forecastFactRefs],
-    relationship_status: input.relationshipStatus,
-    preference_context: {
-      recent_14d: addSmoothedOpenRates(input.preferenceSnapshot.recent_14d),
-      long_term_90d: addSmoothedOpenRates(input.preferenceSnapshot.long_term_90d),
-      current_session_opens: input.preferenceSnapshot.current_session_opens,
-    },
+    fortune_facts: hardFacts,
+    time_windows: input.timeWindows,
+    available_fact_refs: availableFactRefs,
+    reality_context: input.realityContext,
+    preference_context: buildPreferenceContext(input.preferenceSnapshot),
     content_history: input.preferenceSnapshot.content_history,
+    time_window_history: input.preferenceSnapshot.time_window_history.filter((item) => (
+      input.timeWindows.some((window) => window.window_key === item.window_key)
+    )),
   };
 }
 
-function buildFactReferences(
-  facts: DailyFortuneFactPackage,
-  effectiveDate: string,
-  options: { prefix?: string; includeNatal?: boolean } = {},
+function buildNatalFactReferences(
+  facts: RecommendationHardFactPackage,
 ): RecommendationFactReference[] {
-  const prefix = options.prefix || '';
-  const ref = (value: string) => `${prefix}${value}`;
-  const refs: RecommendationFactReference[] = options.includeNatal === false
-    ? []
-    : facts.natal.pillars.map((pillar) => ({
-      ref: ref(`natal:pillar:${pillar.position}`),
+  return [
+    ...facts.natal.pillars.map((pillar) => ({
+      ref: `natal:pillar:${pillar.position}`,
       valid_from: facts.profile.birth_date,
       valid_until: null,
-    }));
-  const timingRefs = {
-    dayun: timingValidity(facts, 'dayun', effectiveDate),
-    liunian: timingValidity(facts, 'liunian', effectiveDate),
-    liuyue: timingValidity(facts, 'liuyue', effectiveDate),
-    liuri: timingValidity(facts, 'liuri', effectiveDate),
-  };
-  (Object.keys(timingRefs) as Array<keyof typeof timingRefs>).forEach((key) => {
-    const validity = timingRefs[key];
-    refs.push({ ref: ref(`timing:${key}`), ...validity });
-  });
-
-  const interactions = [
-    ...(options.includeNatal === false ? [] : facts.mingli_interactions.natal),
-    ...facts.mingli_interactions.timing,
+    })),
+    ...facts.mingli_interactions.natal.map((interaction) => ({
+      ref: `natal:interaction:${interaction.id}`,
+      valid_from: facts.profile.birth_date,
+      valid_until: null,
+    })),
   ];
-  for (const interaction of interactions) {
-    refs.push({
-      ref: ref(`interaction:${interaction.id}`),
-      ...interactionValidity(interaction, timingRefs, facts.profile.birth_date, effectiveDate),
-    });
-  }
-  return refs;
 }
 
-function restrictFactReferencesToTargetWindow(
-  factReferences: RecommendationFactReference[],
-  targetWindow: RecommendationForecastWindow['target_window'],
+function buildTimeWindowFactReferences(
+  window: RecommendationTimeWindow,
 ): RecommendationFactReference[] {
-  // A next-liuyue card may cite that month's dayun or liunian background, but
-  // its question still describes the next liuyue.  Narrow every future-window
-  // reference to that target interval before AI sees it, so a yearly ref
-  // cannot mechanically materialize a card with a whole-year validity.
-  return factReferences.flatMap((fact) => {
-    const validFrom = fact.valid_from > targetWindow.valid_from
-      ? fact.valid_from
-      : targetWindow.valid_from;
-    const finiteEnds = [fact.valid_until, targetWindow.valid_until]
-      .filter((date): date is string => date !== null);
-    const validUntil = finiteEnds.length === 0
-      ? null
-      : finiteEnds.reduce((earliest, date) => date < earliest ? date : earliest);
-    if (validUntil !== null && validUntil < validFrom) return [];
-    return [{ ref: fact.ref, valid_from: validFrom, valid_until: validUntil }];
-  });
-}
-
-async function buildNextLiuyueForecastWindow(input: {
-  dependencies: RecommendationServiceDependencies;
-  userId: string;
-  profileId: string;
-  timezone: string;
-  currentFacts: DailyFortuneFactPackage;
-  currentEffectiveDate: string;
-  user: Awaited<ReturnType<typeof userRepository.findById>> | null;
-}): Promise<RecommendationForecastWindow[]> {
-  // The luck engine treats liuyue.end_date as the next solar-term boundary
-  // (exclusive for the current month), so it is exactly the date to ask the
-  // existing engine for the next liuyue.  Do not add a Gregorian month or a
-  // day here: that would break the solar-term fact boundary.
-  const nextLiuyueStart = validDateOrNull(input.currentFacts.timing.liuyue.end_date);
-  if (!nextLiuyueStart || nextLiuyueStart <= input.currentEffectiveDate) return [];
-
-  let nextFacts: DailyFortuneFactPackage;
-  try {
-    const nextBundle = await input.dependencies.getEngineBundle(
-      input.userId,
-      input.profileId,
-      nextLiuyueStart,
-    );
-    nextFacts = buildDailyFortuneFactPackage(
-      nextBundle,
-      nextLiuyueStart,
-      input.timezone,
-      input.user,
-    );
-  } catch (error) {
-    // The optional forecast window must never be fabricated.  If the existing
-    // deterministic fact builder cannot produce it, the same request remains
-    // valid for current facts only.  Other failures retain their normal error
-    // behavior instead of being silently disguised as an AI decision.
-    if (error instanceof DailyFortuneFactError) return [];
-    throw error;
-  }
-
-  const targetWindow = timingValidity(nextFacts, 'liuyue', nextLiuyueStart);
-  if (
-    targetWindow.valid_from !== nextLiuyueStart
-    || targetWindow.valid_until === null
-    || targetWindow.valid_until < nextLiuyueStart
-  ) {
-    return [];
-  }
-
-  return [{
-    window_key: 'next_liuyue',
-    label: '下一个流月',
-    target_window: targetWindow,
-    fact_ref_prefix: 'forecast:next_liuyue:',
-    fortune_facts: nextFacts,
-  }];
-}
-
-function timingValidity(
-  facts: DailyFortuneFactPackage,
-  key: keyof DailyFortuneFactPackage['timing'],
-  effectiveDate: string,
-): Pick<RecommendationFactReference, 'valid_from' | 'valid_until'> {
-  const timing = facts.timing[key];
-  if (key === 'dayun') {
-    return {
-      valid_from: validDateOr(timing.start_date, yearStart(timing.start_year), effectiveDate),
-      valid_until: validDateOrNull(timing.end_date, yearEnd(timing.end_year)),
-    };
-  }
-  if (key === 'liunian') {
-    const year = timing.year;
-    return {
-      valid_from: yearStart(year) || effectiveDate,
-      valid_until: yearEnd(year),
-    };
-  }
-  if (key === 'liuyue') {
-    const endBoundary = validDateOrNull(timing.end_date);
-    return {
-      valid_from: validDateOr(timing.start_date, effectiveDate),
-      // The engine's end_date is the next solar-term / next-liuyue start.
-      // Card fact windows use inclusive calendar dates, so represent the last
-      // date governed by this liuyue rather than accidentally overlapping the
-      // following month on its first day.
-      valid_until: endBoundary ? previousCalendarDate(endBoundary) : null,
-    };
-  }
-  return {
-    valid_from: validDateOr(timing.date, effectiveDate),
-    valid_until: validDateOr(timing.date, effectiveDate),
+  const validity = {
+    valid_from: window.target_window.valid_from,
+    valid_until: window.target_window.valid_until,
   };
+  return [
+    {
+      ref: `time:${window.window_key}:timing`,
+      ...validity,
+    },
+    ...window.interactions.map((interaction) => ({
+      ref: `time:${window.window_key}:interaction:${interaction.id}`,
+      ...validity,
+    })),
+  ];
 }
 
-function interactionValidity(
-  interaction: DailyFortuneMingliInteraction,
-  timing: Record<string, Pick<RecommendationFactReference, 'valid_from' | 'valid_until'>>,
-  birthDate: string,
-  effectiveDate: string,
-): Pick<RecommendationFactReference, 'valid_from' | 'valid_until'> {
-  if (interaction.scope === 'natal' || interaction.time_horizon === 'long_term') {
-    return { valid_from: birthDate, valid_until: null };
-  }
-  // `ten_years` contains the substring `year`; use the engine's fixed horizon
-  // vocabulary rather than substring matching so a dayun interaction retains
-  // its full ten-year validity window.
-  switch (interaction.time_horizon) {
-    case 'ten_years':
-      return timing.dayun;
-    case 'year':
-      return timing.liunian;
-    case 'month':
-      return timing.liuyue;
-    case 'day':
-      return timing.liuri;
-    default:
-      return { valid_from: effectiveDate, valid_until: effectiveDate };
-  }
+function projectRecommendationHardFacts(
+  facts: DailyFortuneFactPackage,
+): RecommendationHardFactPackage {
+  return {
+    contract_version: facts.contract_version,
+    effective_date: facts.effective_date,
+    timezone: facts.timezone,
+    day_boundary: facts.day_boundary,
+    profile: facts.profile,
+    natal: {
+      pillars: facts.natal.pillars.map(projectRecommendationPillar),
+      day_master: facts.natal.day_master,
+    },
+    mingli_interactions: {
+      rule_version: facts.mingli_interactions.rule_version,
+      natal: facts.mingli_interactions.natal.map(projectRecommendationInteraction),
+    },
+  };
 }
 
 function addSmoothedOpenRates(
@@ -691,14 +625,202 @@ function addSmoothedOpenRates(
   }));
 }
 
+function buildPreferenceContext(
+  snapshot: RecommendationPreferenceSnapshot,
+): RecommendationPreferenceContext {
+  return {
+    recent_14d: addSmoothedOpenRates(snapshot.recent_14d),
+    long_term_90d: addSmoothedOpenRates(snapshot.long_term_90d),
+    current_session_opens: snapshot.current_session_opens.map((open) => ({
+      ...open,
+      primary_time_window_key: open.primary_time_window_key ?? null,
+      referenced_window_keys: open.referenced_window_keys || [],
+    })),
+  };
+}
+
+function buildSelectionContext(
+  snapshot: RecommendationPreferenceSnapshot,
+  source: RecommendationSelectionContext['source'],
+): RecommendationSelectionContext {
+  return {
+    orchestrator_version: RECOMMENDATION_ORCHESTRATOR_VERSION,
+    source,
+    preference_context: buildPreferenceContext(snapshot),
+  };
+}
+
+function selectPoolContinuationCards(
+  source: RecommendationBatchRow,
+  preferenceSnapshot: RecommendationPreferenceSnapshot,
+): RecommendationBatchCards {
+  const pool = source.candidate_pool_json;
+  const displayed = source.cards_json;
+  if (
+    !pool
+    || pool.pool_version !== RECOMMENDATION_CANDIDATE_POOL_VERSION
+    || pool.candidates.length !== RECOMMENDATION_CANDIDATE_POOL_SIZE
+    || !displayed
+  ) {
+    throw new Error('候选池续批缺少完整来源');
+  }
+
+  const poolIds = new Set(pool.candidates.map((candidate) => candidate.candidate_id));
+  if (poolIds.size !== RECOMMENDATION_CANDIDATE_POOL_SIZE) {
+    throw new Error('候选池 candidate_id 不唯一');
+  }
+  const displayedIds = new Set([
+    ...displayed.deck_cards,
+    ...displayed.center_cards,
+  ].map((candidate) => candidate.candidate_id));
+  const expectedDisplayCount = RECOMMENDATION_DISPLAY_DECK_COUNT
+    + RECOMMENDATION_DISPLAY_CENTER_COUNT;
+  if (
+    displayedIds.size !== expectedDisplayCount
+    || [...displayedIds].some((candidateId) => !poolIds.has(candidateId))
+  ) {
+    throw new Error('首个展示批次不属于候选池');
+  }
+
+  const remaining = pool.candidates.filter(
+    (candidate) => !displayedIds.has(candidate.candidate_id),
+  );
+  if (remaining.length !== expectedDisplayCount) {
+    throw new Error('候选池剩余数量无效');
+  }
+  return selectDisplayCards(remaining, preferenceSnapshot, 'pool_continuation');
+}
+
+function selectDisplayCards(
+  candidates: RecommendationCandidate[],
+  preferenceSnapshot: RecommendationPreferenceSnapshot,
+  source: RecommendationSelectionContext['source'],
+): RecommendationBatchCards {
+  const requiredCount = RECOMMENDATION_DISPLAY_DECK_COUNT
+    + RECOMMENDATION_DISPLAY_CENTER_COUNT;
+  if (candidates.length < requiredCount) {
+    throw new Error('展示编排缺少足够候选卡');
+  }
+
+  const ranked = source === 'pool_continuation'
+    ? [...candidates].sort((left, right) => {
+      const roleDifference = selectionRolePriority(left.selection_role)
+        - selectionRolePriority(right.selection_role);
+      if (roleDifference !== 0) return roleDifference;
+      const affinityDifference = currentSessionAffinity(
+        right,
+        preferenceSnapshot.current_session_opens,
+      ) - currentSessionAffinity(left, preferenceSnapshot.current_session_opens);
+      return affinityDifference || left.pool_position - right.pool_position;
+    })
+    : [...candidates].sort((left, right) => left.pool_position - right.pool_position);
+  const selected = ranked.slice(0, requiredCount);
+  const centerIds = new Set(
+    selected
+      .map((candidate, index) => ({ candidate, index }))
+      .sort((left, right) => (
+        centerSuitability(right.candidate) - centerSuitability(left.candidate)
+        || left.index - right.index
+      ))
+      .slice(0, RECOMMENDATION_DISPLAY_CENTER_COUNT)
+      .map(({ candidate }) => candidate.candidate_id),
+  );
+  const deck = selected.filter((candidate) => !centerIds.has(candidate.candidate_id));
+  const center = selected.filter((candidate) => centerIds.has(candidate.candidate_id));
+  if (
+    deck.length !== RECOMMENDATION_DISPLAY_DECK_COUNT
+    || center.length !== RECOMMENDATION_DISPLAY_CENTER_COUNT
+  ) {
+    throw new Error('展示面分配数量无效');
+  }
+
+  return {
+    deck_cards: deck.map((candidate, position) => ({
+      ...candidate,
+      position,
+      surface: 'deck',
+    })),
+    center_cards: center.map((candidate, position) => ({
+      ...candidate,
+      position,
+      surface: 'center',
+    })),
+  };
+}
+
+function selectionRolePriority(
+  role: RecommendationCandidate['selection_role'],
+): number {
+  const priorities: Record<RecommendationCandidate['selection_role'], number> = {
+    p1_mingli_change: 0,
+    p2_interest_match: 1,
+    p2_baseline: 2,
+    p3_diversity: 3,
+  };
+  return priorities[role];
+}
+
+function currentSessionAffinity(
+  candidate: RecommendationCandidate,
+  opens: RecommendationPreferenceSnapshot['current_session_opens'],
+): number {
+  return opens.reduce((score, open) => {
+    const opened = open.content_profile;
+    return score
+      + (opened.topic_key === candidate.content_profile.topic_key ? 8 : 0)
+      + (opened.domain === candidate.content_profile.domain ? 4 : 0)
+      + (opened.question_job === candidate.content_profile.question_job ? 2 : 0)
+      + (opened.content_horizon === candidate.content_profile.content_horizon ? 1 : 0);
+  }, 0);
+}
+
+function centerSuitability(candidate: RecommendationCandidate): number {
+  const jobScore: Record<RecommendationCandidate['content_profile']['question_job'], number> = {
+    describe: 3,
+    explain: 3,
+    compare: 2,
+    forecast: 1,
+    act: 1,
+  };
+  const horizonScore: Record<RecommendationCandidate['content_profile']['content_horizon'], number> = {
+    baseline: 3,
+    phase: 2,
+    year: 1,
+    month: 0,
+  };
+  return jobScore[candidate.content_profile.question_job]
+    + horizonScore[candidate.content_profile.content_horizon]
+    + (candidate.selection_role === 'p2_baseline' ? 3 : 0);
+}
+
 function normalizeRelationshipStatus(
   facts: DailyFortuneFactPackage,
 ): RecommendationRelationshipStatus {
   const raw = facts.user_context.declared.relationship.status?.trim().toLowerCase() || '';
-  if (['single', 'single_now', 'unpartnered', '单身', '未婚'].includes(raw)) return 'single';
+  // "未婚" is marital status, not proof that the user currently has no
+  // partner. Only an explicit present-tense relationship statement is safe.
+  if (['single', 'single_now', 'unpartnered', '单身'].includes(raw)) return 'single';
   if (['dating', 'in_relationship', 'partnered', '恋爱', '恋爱中', '有伴侣'].includes(raw)) return 'dating';
   if (['married', 'marriage', '已婚', '婚姻'].includes(raw)) return 'married';
   return 'unknown';
+}
+
+function buildRealityContext(
+  facts: DailyFortuneFactPackage,
+): RecommendationRealityContext {
+  const declared = facts.user_context.declared;
+  return {
+    life_stage: declared.life_stage,
+    work_study: declared.work_study,
+    relationship: {
+      status: normalizeRelationshipStatus(facts),
+      current_focus: declared.relationship.current_focus,
+    },
+    saved_understanding: {
+      current_focus: facts.user_context.zhizhi_understanding.current_focus,
+      expression_preferences: facts.user_context.zhizhi_understanding.expression_preferences,
+    },
+  };
 }
 
 function readyResult(
@@ -852,51 +974,6 @@ function isEffectiveDateCurrent(
   expectedDate: string,
 ): boolean {
   return resolveDailyFortuneDate(dependencies.now(), timezone).effectiveDate === expectedDate;
-}
-
-function validDateOr(value: unknown, ...fallbacks: Array<string | null | undefined>): string {
-  if (typeof value === 'string' && isDate(value)) return value;
-  for (const fallback of fallbacks) {
-    if (typeof fallback === 'string' && isDate(fallback)) return fallback;
-  }
-  throw new DailyFortuneFactError('推荐事实缺少有效日期');
-}
-
-function validDateOrNull(value: unknown, fallback?: string | null): string | null {
-  if (typeof value === 'string' && isDate(value)) return value;
-  if (typeof fallback === 'string' && isDate(fallback)) return fallback;
-  return null;
-}
-
-function previousCalendarDate(value: string): string {
-  const [year, month, day] = value.split('-').map(Number);
-  const previous = new Date(Date.UTC(year, month - 1, day - 1));
-  return [
-    previous.getUTCFullYear(),
-    String(previous.getUTCMonth() + 1).padStart(2, '0'),
-    String(previous.getUTCDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-function yearStart(year: unknown): string | null {
-  return typeof year === 'number' && Number.isInteger(year) && year >= 1000 && year <= 9999
-    ? `${year}-01-01`
-    : null;
-}
-
-function yearEnd(year: unknown): string | null {
-  return typeof year === 'number' && Number.isInteger(year) && year >= 1000 && year <= 9999
-    ? `${year}-12-31`
-    : null;
-}
-
-function isDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split('-').map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day;
 }
 
 function isFutureTimestamp(value: string, now: Date): boolean {

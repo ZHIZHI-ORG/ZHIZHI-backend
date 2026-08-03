@@ -18,6 +18,7 @@ const userId = '00000000-0000-4000-8000-000000000001';
 const profileId = '00000000-0000-4000-8000-000000000002';
 const rootBatchId = '00000000-0000-4000-8000-000000000003';
 const nextBatchId = '00000000-0000-4000-8000-000000000004';
+const thirdBatchId = '00000000-0000-4000-8000-000000000006';
 
 function run(name: string, test: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -65,7 +66,13 @@ function bundle(relationshipStatus: string | null = null) {
       birth_region: '上海',
       full_chart: { fixture: true },
       daily_fortune_context: {
+        life_stage: { primary: '创业阶段', tags: ['产品验证'] },
+        work_study: { mode: 'career', current_goal: '完成 MVP 上线' },
         relationship: { status: relationshipStatus, current_focus: null },
+        zhizhi_understanding: {
+          current_focus: ['事业推进'],
+          expression_preferences: ['直接'],
+        },
       },
       updated_at: '2026-08-01T00:00:00.000Z',
       created_at: '2026-08-01T00:00:00.000Z',
@@ -101,35 +108,6 @@ function bundle(relationshipStatus: string | null = null) {
       ],
     },
   } as any;
-}
-
-function nextLiuyueBundle(relationshipStatus: string | null = null) {
-  const next = bundle(relationshipStatus);
-  const nextTimingParticipant = {
-    type: 'liuyue',
-    pillar: null,
-    label: '流月',
-    stem: '丙',
-    branch: '申',
-    gan_zhi: '丙申',
-    ten_gods: ['正官'],
-  };
-  next.timeline.active_luck_context.liuyue = timing('丙申', '丙', '申', {
-    start_date: '2026-08-07',
-    end_date: '2026-09-07',
-  });
-  next.timeline.active_luck_context.liuri = timing('丙申', '丙', '申', {
-    date: '2026-08-07',
-  });
-  next.timeline.timing_interactions = [interaction(
-    'next-liuyue-to-day-branch',
-    nextTimingParticipant,
-    {
-      type: 'natal_pillar', pillar: 'day', label: '日柱', stem: '己', branch: '丑',
-      gan_zhi: '己丑', ten_gods: ['日主'],
-    },
-  )];
-  return next;
 }
 
 function pillar(position: string, stem: string, branch: string) {
@@ -181,24 +159,28 @@ function interaction(id: string, source: unknown, target: unknown) {
   };
 }
 
-function cards(): RecommendationAiOutput {
-  const makeCard = (surface: 'deck' | 'center', position: number) => ({
-    candidate_id: `${surface}-card-${position}`,
-    position,
-    surface,
-    semantic_key: `love:relationship_progress:forecast:month:relationship_progress:${surface}:${position}`,
+function generatedPool(): RecommendationAiOutput {
+  const makeCandidate = (poolPosition: number) => ({
+    candidate_id: `candidate-${poolPosition}`,
+    pool_position: poolPosition,
+    semantic_key: `${poolPosition % 2 === 0 ? 'love' : 'career'}:topic:${poolPosition}`,
+    primary_time_window_key: 'liuyue:2026-07-07:乙未',
+    referenced_window_keys: ['liuyue:2026-07-07:乙未'],
     content_profile: {
-      domain: 'love' as const,
-      topic_key: 'relationship_progress' as const,
+      domain: poolPosition % 2 === 0 ? 'love' as const : 'career' as const,
+      topic_key: poolPosition % 2 === 0 ? 'relationship_progress' as const : 'career_direction' as const,
       question_job: 'forecast' as const,
       content_horizon: 'month' as const,
     },
-    selection_role: position === 0 ? 'p1_mingli_change' as const : 'p3_diversity' as const,
+    selection_role: poolPosition === 0 ? 'p1_mingli_change' as const : 'p3_diversity' as const,
     event_hypothesis: {
       event_family: 'relationship_progress' as const,
       claim_mode: 'conditional' as const,
       summary: '关系节奏可能因流月变化而出现调整。',
-      fact_refs: ['interaction:liuyue-to-day-branch', 'timing:liuyue'],
+      fact_refs: [
+        'time:liuyue:2026-07-07:乙未:interaction:liuyue-to-day-branch',
+        'time:liuyue:2026-07-07:乙未:timing',
+      ],
     },
     validity: { valid_from: '2026-07-07', valid_until: '2026-08-07' },
     question: '这个月关系节奏会怎么变化？',
@@ -206,8 +188,38 @@ function cards(): RecommendationAiOutput {
     body: '流月变化会让既有互动节奏更容易被放大。如果目前有伴侣，可以先确认双方对时间和回应的期待；如果单身，则留意新互动是否稳定推进。',
   });
   return {
-    deck_cards: [makeCard('deck', 0), makeCard('deck', 1), makeCard('deck', 2), makeCard('deck', 3), makeCard('deck', 4), makeCard('deck', 5)],
-    center_cards: [makeCard('center', 0), makeCard('center', 1), makeCard('center', 2)],
+    candidates: Array.from({ length: 24 }, (_, index) => makeCandidate(index)),
+    generation_metrics: {
+      model_id: 'gemini-test-pinned',
+      outcome: 'success',
+      input_json_bytes: 1000,
+      request_bytes: 1200,
+      provider_response_bytes: 2400,
+      output_text_bytes: 2000,
+      prompt_token_count: 300,
+      cached_content_token_count: 0,
+      candidates_token_count: 600,
+      thoughts_token_count: 0,
+      total_token_count: 900,
+      latency_ms: 500,
+      finish_reason: 'STOP',
+    },
+  };
+}
+
+function displayCards(deckCount = 6, centerCount = 3) {
+  const candidates = generatedPool().candidates;
+  return {
+    deck_cards: candidates.slice(0, deckCount).map((candidate, position) => ({
+      ...candidate,
+      position,
+      surface: 'deck' as const,
+    })),
+    center_cards: candidates.slice(deckCount, deckCount + centerCount).map((candidate, position) => ({
+      ...candidate,
+      position,
+      surface: 'center' as const,
+    })),
   };
 }
 
@@ -231,9 +243,14 @@ function batchRow(overrides: Partial<RecommendationBatchRow> = {}): Recommendati
     attempt_count: 1,
     next_attempt_at: null,
     input_snapshot_json: null,
-    cards_json: cards(),
-    prompt_version: 'recommendation_prompt_v1',
-    output_schema_version: 'recommendation_ai_v1',
+    cards_json: displayCards(),
+    candidate_pool_json: null,
+    generation_kind: 'ai',
+    pool_source_batch_id: null,
+    selection_context_json: null,
+    generation_metrics_json: null,
+    prompt_version: 'recommendation_prompt_v2',
+    output_schema_version: 'recommendation_output_v1',
     taxonomy_version: 'recommendation_taxonomy_v1',
     model_id: 'gemini-test-pinned',
     created_at: '2026-08-03T10:00:00.000Z',
@@ -248,6 +265,7 @@ function preferenceSnapshot(overrides: Record<string, unknown> = {}) {
     long_term_90d: [],
     current_session_opens: [],
     content_history: [],
+    time_window_history: [],
     ...overrides,
   } as any;
 }
@@ -265,6 +283,7 @@ function repository(overrides: Record<string, unknown> = {}) {
     }),
     findById: async (_userId: string, id: string) => batchRow({ id }),
     finalize: async () => true,
+    createPoolContinuation: async () => nextBatchId,
     markRetryWait: async () => true,
     release: async () => true,
     getPreferenceSnapshot: async () => preferenceSnapshot(),
@@ -289,6 +308,7 @@ async function main(): Promise<void> {
     let claimInput: any;
     let finalizedInput: any;
     let preferenceQuery: any;
+    const engineDates: string[] = [];
     const service = createRecommendationService({
       batches: repository({
         claim: async (value: unknown) => {
@@ -321,6 +341,8 @@ async function main(): Promise<void> {
                 question_job: 'forecast',
                 content_horizon: 'month',
               },
+              primary_time_window_key: 'liuyue:2026-07-07:乙未',
+              referenced_window_keys: ['liuyue:2026-07-07:乙未'],
               opened_at: '2026-08-03T11:00:00.000Z',
             }],
             content_history: [{
@@ -330,16 +352,24 @@ async function main(): Promise<void> {
               opened: true,
               last_seen_at: '2026-08-03T11:00:00.000Z',
             }],
+            time_window_history: [{
+              window_key: 'liuyue:2026-07-07:乙未',
+              primary_exposures: 2,
+              primary_opens: 1,
+              last_primary_exposed_at: '2026-08-03T10:00:00.000Z',
+              last_primary_opened_at: '2026-08-03T11:00:00.000Z',
+            }],
           });
         },
       }),
-      getEngineBundle: async (_userId: string, _profileId: string, effectiveDate: string) => (
-        effectiveDate === '2026-08-07' ? nextLiuyueBundle(null) : bundle(null)
-      ),
+      getEngineBundle: async (_userId: string, _profileId: string, effectiveDate: string) => {
+        engineDates.push(effectiveDate);
+        return bundle(null);
+      },
       getUser: async () => null,
       generateCandidates: async (value: unknown) => {
         capturedInput = value;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
@@ -348,11 +378,50 @@ async function main(): Promise<void> {
     const result = await service.resolveRecommendations(userId, input());
     assert.equal(result.status, 'ready');
     assert.equal((result as any).batch.batch_id, nextBatchId);
-    assert.equal(capturedInput.relationship_status, 'unknown');
+    assert.equal(capturedInput.reality_context.relationship.status, 'unknown');
+    assert.equal(capturedInput.reality_context.life_stage.primary, '创业阶段');
+    assert.equal(capturedInput.reality_context.work_study.current_goal, '完成 MVP 上线');
+    assert.deepEqual(capturedInput.reality_context.saved_understanding.current_focus, ['事业推进']);
+    const currentFactsJson = JSON.stringify(capturedInput.fortune_facts);
+    assert.equal(currentFactsJson.includes('domain_candidates'), false);
+    assert.equal(currentFactsJson.includes('activated_palaces'), false);
+    assert.equal(currentFactsJson.includes('intensity'), false);
+    assert.equal(currentFactsJson.includes('fact_label'), false);
+    assert.equal(currentFactsJson.includes('user_context'), false);
+    assert.equal(currentFactsJson.includes('element'), false);
+    assert.equal(currentFactsJson.includes('timing'), false);
+    const currentLiuyue = capturedInput.time_windows.find(
+      (window: any) => window.kind === 'liuyue' && window.is_current,
+    );
+    assert.equal(
+      currentLiuyue.interactions[0].relation,
+      'branch_clash',
+      '推荐 AI 仍必须收到可复算的作用关系',
+    );
+    const timeWindowsJson = JSON.stringify(capturedInput.time_windows);
+    assert.equal(timeWindowsJson.includes('source'), false);
+    assert.equal(timeWindowsJson.includes('targets'), false);
+    assert.equal(timeWindowsJson.includes('element'), false);
+    assert.equal(timeWindowsJson.includes('domain_candidates'), false);
+    assert.equal(timeWindowsJson.includes('activated_palaces'), false);
+    assert.equal(timeWindowsJson.includes('intensity'), false);
+    assert.equal(timeWindowsJson.includes('fact_label'), false);
+    assert.equal(
+      capturedInput.time_windows.some((window: any) => window.kind === 'liuri'),
+      false,
+      '推荐大卡和中心卡不接收流日窗口',
+    );
     assert.deepEqual(
       capturedInput.preference_context.current_session_opens.map((item: any) => item.candidate_id),
       ['deck-card-0'],
     );
+    assert.deepEqual(capturedInput.time_window_history, [{
+      window_key: 'liuyue:2026-07-07:乙未',
+      primary_exposures: 2,
+      primary_opens: 1,
+      last_primary_exposed_at: '2026-08-03T10:00:00.000Z',
+      last_primary_opened_at: '2026-08-03T11:00:00.000Z',
+    }]);
     assert.ok(capturedInput.preference_context.long_term_90d.some(
       (signal: any) => signal.dimension === 'domain' && signal.key === 'love' && signal.opens > 0,
     ));
@@ -363,35 +432,16 @@ async function main(): Promise<void> {
       0.333,
     );
     assert.ok(capturedInput.available_fact_refs.some((ref: any) => (
-      ref.ref === 'interaction:liuyue-to-day-branch'
+      ref.ref === 'time:liuyue:2026-07-07:乙未:interaction:liuyue-to-day-branch'
       && ref.valid_from === '2026-07-07'
       && ref.valid_until === '2026-08-06'
     )));
-    assert.deepEqual(capturedInput.forecast_windows.map((window: any) => ({
-      window_key: window.window_key,
-      target_window: window.target_window,
-      timing: window.fortune_facts.timing.liuyue.gan_zhi,
-    })), [{
-      window_key: 'next_liuyue',
-      target_window: { valid_from: '2026-08-07', valid_until: '2026-09-06' },
-      timing: '丙申',
-    }]);
-    assert.ok(capturedInput.available_fact_refs.some((ref: any) => (
-      ref.ref === 'forecast:next_liuyue:interaction:next-liuyue-to-day-branch'
-      && ref.valid_from === '2026-08-07'
-      && ref.valid_until === '2026-09-06'
-    )), '下一流月的作用关系必须带前缀进入同一次 AI 调用');
     assert.deepEqual(
-      capturedInput.available_fact_refs.find((ref: any) => (
-        ref.ref === 'forecast:next_liuyue:timing:liunian'
-      )),
-      {
-        ref: 'forecast:next_liuyue:timing:liunian',
-        valid_from: '2026-08-07',
-        valid_until: '2026-09-06',
-      },
-      '下一流月题引用流年背景时，事实引用也必须机械收窄到下一流月目标期',
+      capturedInput.time_windows.map((window: any) => window.kind).sort(),
+      ['dayun', 'liunian', 'liuyue'],
+      '没有完整时间线 fixture 时仍复用当前三层硬事实，不制造流日或下月特例',
     );
+    assert.deepEqual(engineDates, ['2026-08-03'], '推荐不得为下一个流月再次调用事实引擎');
     assert.equal(claimInput.afterBatchId, null);
     assert.equal(claimInput.generationTimezone, 'Asia/Hong_Kong');
     assert.equal(claimInput.validUntil, '2026-08-03T15:00:00.000Z');
@@ -403,7 +453,220 @@ async function main(): Promise<void> {
       now: now.toISOString(),
     });
     assert.deepEqual(finalizedInput.inputSnapshot, capturedInput);
-    assert.deepEqual(finalizedInput.cards, cards());
+    assert.equal(finalizedInput.candidatePool.pool_version, 'recommendation_pool_v1');
+    assert.equal(finalizedInput.candidatePool.candidates.length, 24);
+    assert.equal(finalizedInput.cards.deck_cards.length, 8);
+    assert.equal(finalizedInput.cards.center_cards.length, 4);
+    assert.equal(finalizedInput.selectionContext.source, 'ai_generation');
+    assert.equal(finalizedInput.generationMetrics.total_token_count, 900);
+    assert.equal(finalizedInput.outputSchemaVersion, 'recommendation_output_v2');
+  });
+
+  await run('打开行为会重排同一 24 张池的剩余 12 张，第二展示批次不再调用 AI', async () => {
+    let source: RecommendationBatchRow | null = null;
+    let continuationCards: any;
+    let continuationContext: any;
+    let useOpenPreference = false;
+    let aiCalls = 0;
+    let claims = 0;
+    const service = createRecommendationService({
+      batches: repository({
+        findById: async (_userId: string, id: string) => {
+          if (id === rootBatchId) return source;
+          return batchRow({
+            id: nextBatchId,
+            after_batch_id: rootBatchId,
+            cards_json: continuationCards,
+            candidate_pool_json: null,
+            generation_kind: 'pool',
+            pool_source_batch_id: rootBatchId,
+            selection_context_json: continuationContext,
+            prompt_version: 'recommendation_prompt_v3',
+            output_schema_version: 'recommendation_output_v2',
+          });
+        },
+        createPoolContinuation: async (value: any) => {
+          continuationCards = value.cards;
+          continuationContext = value.selectionContext;
+          return nextBatchId;
+        },
+        claim: async (value: any) => {
+          claims += 1;
+          assert.equal(claims, 1, '同池续批不应 claim 第二次 AI generation');
+          source = batchRow({
+            id: rootBatchId,
+            profile_revision_hash: value.profileRevisionHash,
+            profile_updated_at: value.profileUpdatedAt,
+            generation_timezone: value.generationTimezone,
+            effective_date: value.effectiveDate,
+            valid_until: value.validUntil,
+            status: 'generating',
+            cards_json: null,
+            candidate_pool_json: null,
+            selection_context_json: null,
+            prompt_version: null,
+            output_schema_version: null,
+            taxonomy_version: null,
+            model_id: null,
+          });
+          return {
+            outcome: 'owner', batchId: rootBatchId, status: 'generating',
+            leaseToken: '00000000-0000-4000-8000-000000000005', leaseEpoch: 1,
+            leaseExpiresAt: '2026-08-03T12:02:30.000Z', nextAttemptAt: null,
+          };
+        },
+        finalize: async (value: any) => {
+          source = batchRow({
+            ...(source as RecommendationBatchRow),
+            status: 'ready',
+            lease_token: null,
+            lease_expires_at: null,
+            cards_json: value.cards,
+            candidate_pool_json: value.candidatePool,
+            selection_context_json: value.selectionContext,
+            prompt_version: value.promptVersion,
+            output_schema_version: value.outputSchemaVersion,
+            taxonomy_version: value.taxonomyVersion,
+            model_id: value.modelId,
+          });
+          return true;
+        },
+        getPreferenceSnapshot: async () => preferenceSnapshot(useOpenPreference ? {
+          current_session_opens: [{
+            candidate_id: 'candidate-1',
+            content_profile: {
+              domain: 'career',
+              topic_key: 'career_direction',
+              question_job: 'forecast',
+              content_horizon: 'month',
+            },
+            primary_time_window_key: 'liuyue:2026-07-07:乙未',
+            referenced_window_keys: ['liuyue:2026-07-07:乙未'],
+            opened_at: '2026-08-03T11:30:00.000Z',
+          }],
+        } : {}),
+      }),
+      getEngineBundle: async () => bundle(null),
+      getUser: async () => null,
+      generateCandidates: async () => {
+        aiCalls += 1;
+        const pool = generatedPool();
+        pool.candidates[12] = {
+          ...pool.candidates[12],
+          selection_role: 'p1_mingli_change',
+        };
+        pool.candidates[13] = {
+          ...pool.candidates[13],
+          primary_time_window_key: 'liuyue:2026-08-07:丙申',
+          referenced_window_keys: ['liuyue:2026-08-07:丙申'],
+        };
+        return pool;
+      },
+      now: () => now,
+      generationEnabled: () => true,
+    });
+
+    const first = await service.resolveRecommendations(userId, input());
+    assert.equal(first.status, 'ready');
+    assert.equal(aiCalls, 1);
+    useOpenPreference = true;
+    const result = await service.resolveRecommendations(userId, input(rootBatchId));
+    assert.equal(result.status, 'ready');
+    assert.equal((result as any).batch.batch_id, nextBatchId);
+    assert.equal((result as any).batch.after_batch_id, rootBatchId);
+    assert.equal(claims, 1);
+    assert.equal(aiCalls, 1);
+    assert.equal(continuationCards.deck_cards.length, 8);
+    assert.equal(continuationCards.center_cards.length, 4);
+    assert.equal(
+      continuationCards.center_cards[0].pool_position,
+      12,
+      '同等展示适配度下，P1 命理变化不能被兴趣命中的 P3 内容压后',
+    );
+    assert.equal(
+      continuationCards.deck_cards[0].pool_position,
+      19,
+      '同一 selection role 内，当前会话打开应继续重排相近内容',
+    );
+    assert.ok(
+      continuationCards.center_cards.some((card: any) => card.pool_position === 13),
+      '时间窗口记忆不能覆盖内容兴趣，把相同月份误当成用户偏好',
+    );
+    assert.deepEqual(
+      new Set([
+        ...continuationCards.deck_cards,
+        ...continuationCards.center_cards,
+      ].map((card: any) => card.candidate_id)),
+      new Set(Array.from({ length: 12 }, (_, index) => `candidate-${index + 12}`)),
+    );
+    assert.equal(continuationContext.source, 'pool_continuation');
+    assert.deepEqual(
+      continuationContext.preference_context.current_session_opens.map((item: any) => item.candidate_id),
+      ['candidate-1'],
+    );
+  });
+
+  await run('24 张池耗尽后才新调一次 AI，且新调用包含刚才的打开行为', async () => {
+    const child = batchRow({
+      id: nextBatchId,
+      after_batch_id: rootBatchId,
+      cards_json: displayCards(8, 4),
+      candidate_pool_json: null,
+      generation_kind: 'pool',
+      pool_source_batch_id: rootBatchId,
+      selection_context_json: {
+        orchestrator_version: 'recommendation_orchestrator_v1',
+        source: 'pool_continuation',
+        preference_context: {
+          recent_14d: [], long_term_90d: [], current_session_opens: [],
+        },
+      },
+      prompt_version: 'recommendation_prompt_v3',
+      output_schema_version: 'recommendation_output_v2',
+    });
+    let capturedInput: any;
+    let aiCalls = 0;
+    const service = createRecommendationService({
+      batches: repository({
+        findById: async (_userId: string, id: string) => (
+          id === nextBatchId ? child : batchRow({ id: thirdBatchId })
+        ),
+        claim: async () => ({
+          outcome: 'owner', batchId: thirdBatchId, status: 'generating',
+          leaseToken: '00000000-0000-4000-8000-000000000005', leaseEpoch: 1,
+          leaseExpiresAt: '2026-08-03T12:02:30.000Z', nextAttemptAt: null,
+        }),
+        getPreferenceSnapshot: async () => preferenceSnapshot({
+          current_session_opens: [{
+            candidate_id: 'candidate-13',
+            content_profile: {
+              domain: 'career',
+              topic_key: 'career_direction',
+              question_job: 'forecast',
+              content_horizon: 'month',
+            },
+            opened_at: '2026-08-03T11:45:00.000Z',
+          }],
+        }),
+      }),
+      getEngineBundle: async () => bundle(null),
+      getUser: async () => null,
+      generateCandidates: async (value: any) => {
+        aiCalls += 1;
+        capturedInput = value;
+        return generatedPool();
+      },
+      now: () => now,
+      generationEnabled: () => true,
+    });
+
+    const result = await service.resolveRecommendations(userId, input(nextBatchId));
+    assert.equal(result.status, 'ready');
+    assert.equal(aiCalls, 1);
+    assert.deepEqual(
+      capturedInput.preference_context.current_session_opens.map((item: any) => item.candidate_id),
+      ['candidate-13'],
+    );
   });
 
   await run('已有 in-flight successor 只返回 generating，绝不重复调用 AI', async () => {
@@ -419,7 +682,7 @@ async function main(): Promise<void> {
       getUser: async () => null,
       generateCandidates: async () => {
         aiCalls += 1;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
@@ -430,7 +693,7 @@ async function main(): Promise<void> {
     assert.equal(aiCalls, 0);
   });
 
-  await run('缺少下一流月节气边界时，不伪造未来事实或未来问题上下文', async () => {
+  await run('完整时间线缺失时只复用当前大运流年流月，不制造下月特例或流日窗口', async () => {
     const currentOnly = bundle(null);
     currentOnly.timeline.active_luck_context.liuyue.end_date = null;
     const engineDates: string[] = [];
@@ -444,7 +707,7 @@ async function main(): Promise<void> {
       getUser: async () => null,
       generateCandidates: async (value: unknown) => {
         capturedInput = value;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
@@ -453,28 +716,26 @@ async function main(): Promise<void> {
     const result = await service.resolveRecommendations(userId, input());
     assert.equal(result.status, 'ready');
     assert.deepEqual(engineDates, ['2026-08-03']);
-    assert.deepEqual(capturedInput.forecast_windows, []);
+    assert.equal(capturedInput.forecast_windows, undefined);
+    assert.deepEqual(
+      capturedInput.time_windows.map((window: any) => window.kind).sort(),
+      ['dayun', 'liunian', 'liuyue'],
+    );
     assert.equal(
-      capturedInput.available_fact_refs.some((ref: any) => ref.ref.startsWith('forecast:')),
+      capturedInput.time_windows.some((window: any) => window.kind === 'liuri'),
       false,
     );
   });
 
-  await run('下一流月事实包本身缺少结束节气边界时，只使用当前事实', async () => {
-    const incompleteFuture = nextLiuyueBundle(null);
-    incompleteFuture.timeline.active_luck_context.liuyue.end_date = null;
-    const engineDates: string[] = [];
+  await run('未婚不能被服务端擅自等同为当前单身', async () => {
     let capturedInput: any;
     const service = createRecommendationService({
       batches: repository(),
-      getEngineBundle: async (_userId: string, _profileId: string, effectiveDate: string) => {
-        engineDates.push(effectiveDate);
-        return effectiveDate === '2026-08-07' ? incompleteFuture : bundle(null);
-      },
+      getEngineBundle: async () => bundle('未婚'),
       getUser: async () => null,
       generateCandidates: async (value: unknown) => {
         capturedInput = value;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
@@ -482,8 +743,7 @@ async function main(): Promise<void> {
 
     const result = await service.resolveRecommendations(userId, input());
     assert.equal(result.status, 'ready');
-    assert.deepEqual(engineDates, ['2026-08-03', '2026-08-07']);
-    assert.deepEqual(capturedInput.forecast_windows, []);
+    assert.equal(capturedInput.reality_context.relationship.status, 'unknown');
   });
 
   await run('501 条更新行为后，90 天内更早的打开信号仍通过聚合进入 AI', async () => {
@@ -507,7 +767,7 @@ async function main(): Promise<void> {
       getUser: async () => null,
       generateCandidates: async (value: unknown) => {
         capturedInput = value;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
@@ -562,7 +822,7 @@ async function main(): Promise<void> {
       }),
       getEngineBundle: async () => currentBundle,
       getUser: async () => null,
-      generateCandidates: async () => cards(),
+      generateCandidates: async () => generatedPool(),
       now: () => now,
       generationEnabled: () => true,
     });
@@ -617,7 +877,7 @@ async function main(): Promise<void> {
         }),
         getEngineBundle: async () => bundle(null),
         getUser: async () => null,
-        generateCandidates: async () => cards(),
+        generateCandidates: async () => generatedPool(),
         now: () => now,
         generationEnabled: () => true,
       });
@@ -639,16 +899,18 @@ async function main(): Promise<void> {
       getUser: async () => null,
       generateCandidates: async (value: unknown) => {
         capturedInput = value;
-        return cards();
+        return generatedPool();
       },
       now: () => now,
       generationEnabled: () => true,
     });
     await service.resolveRecommendations(userId, input());
     assert.deepEqual(
-      capturedInput.available_fact_refs.find((ref: any) => ref.ref === 'interaction:liuyue-to-day-branch'),
+      capturedInput.available_fact_refs.find((ref: any) => (
+        ref.ref === 'time:dayun:2024:丁卯:interaction:liuyue-to-day-branch'
+      )),
       {
-        ref: 'interaction:liuyue-to-day-branch',
+        ref: 'time:dayun:2024:丁卯:interaction:liuyue-to-day-branch',
         valid_from: '2024-01-01',
         valid_until: '2033-12-31',
       },
@@ -706,7 +968,7 @@ async function main(): Promise<void> {
       batches: repository({ claim: async () => { claims += 1; throw new Error('must not claim'); } }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => { aiCalls += 1; return cards(); },
+      generateCandidates: async () => { aiCalls += 1; return generatedPool(); },
       now: () => now,
       generationEnabled: () => false,
     });
@@ -729,7 +991,7 @@ async function main(): Promise<void> {
       }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => { aiCalls += 1; return cards(); },
+      generateCandidates: async () => { aiCalls += 1; return generatedPool(); },
       now: () => now,
       generationEnabled: () => true,
     });
@@ -751,7 +1013,7 @@ async function main(): Promise<void> {
       }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => { aiCalls += 1; return cards(); },
+      generateCandidates: async () => { aiCalls += 1; return generatedPool(); },
       now: () => now,
       generationEnabled: () => true,
     });
@@ -773,7 +1035,7 @@ async function main(): Promise<void> {
       }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => { aiCalls += 1; return cards(); },
+      generateCandidates: async () => { aiCalls += 1; return generatedPool(); },
       now: () => now,
       generationEnabled: () => true,
     });
@@ -837,7 +1099,7 @@ async function main(): Promise<void> {
       }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => cards(),
+      generateCandidates: async () => generatedPool(),
       now: () => now,
       generationEnabled: () => true,
     });

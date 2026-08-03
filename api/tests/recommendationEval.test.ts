@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 
 const {
+  RECOMMENDATION_CONTRACT_VERSION,
+  RECOMMENDATION_TAXONOMY_VERSION,
+} = require('../src/models/Recommendation.ts') as typeof import('../src/models/Recommendation');
+const {
   RecommendationAiError,
   generateRecommendationCandidatesWithAi,
 } = require('../src/utils/recommendationAi.ts') as typeof import('../src/utils/recommendationAi');
@@ -59,6 +63,12 @@ function preferenceContext(item: EvalCase) {
       question_job: item.questionJob,
       content_horizon: item.horizon,
     },
+    primary_time_window_key: primaryWindowKey(item) === 'natal'
+      ? null
+      : primaryWindowKey(item),
+    referenced_window_keys: primaryWindowKey(item) === 'natal'
+      ? []
+      : [primaryWindowKey(item)],
     opened_at: '2026-08-08T08:00:00.000Z',
   };
   return {
@@ -71,14 +81,13 @@ function preferenceContext(item: EvalCase) {
 function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any {
   const facts = [
     { ref: 'natal:pillar:day', valid_from: '1995-08-12', valid_until: null },
-    { ref: 'timing:dayun', valid_from: '2020-01-01', valid_until: '2029-12-31' },
-    { ref: 'timing:liunian', valid_from: '2026-01-01', valid_until: '2026-12-31' },
-    { ref: 'timing:liuyue', valid_from: '2026-08-07', valid_until: '2026-09-06' },
-    { ref: 'timing:liuri', valid_from: '2026-08-08', valid_until: '2026-08-08' },
+    { ref: 'time:dayun:2020:乙酉:timing', valid_from: '2020-01-01', valid_until: '2029-12-31' },
+    { ref: 'time:liunian:2026:丙午:timing', valid_from: '2026-01-01', valid_until: '2026-12-31' },
+    { ref: 'time:liuyue:2026-08-07:丙戌:timing', valid_from: '2026-08-07', valid_until: '2026-09-06' },
   ];
   return {
-    contract_version: 'recommendation_ai_v1',
-    taxonomy_version: 'recommendation_taxonomy_v1',
+    contract_version: RECOMMENDATION_CONTRACT_VERSION,
+    taxonomy_version: RECOMMENDATION_TAXONOMY_VERSION,
     effective_date: '2026-08-08',
     timezone: 'Asia/Hong_Kong',
     fortune_facts: {
@@ -86,14 +95,63 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
       effective_date: '2026-08-08',
       timezone: 'Asia/Hong_Kong',
       natal: { pillars: pillars(item.unknownHour) },
-      timing: { liuyue: { gan_zhi: '丙戌' } },
       mingli_interactions: {
-        timing: [{ id: 'liuyue-to-day', fact_label: '流月作用日支' }],
+        natal: [],
       },
     },
-    forecast_windows: [],
+    time_windows: [
+      {
+        window_key: 'dayun:2020:乙酉',
+        kind: 'dayun',
+        bucket: 'current_or_parent_dayun',
+        detail_level: 'evidence',
+        parent_window_keys: [],
+        is_current: true,
+        target_window: { valid_from: '2020-01-01', valid_until: '2029-12-31' },
+        timing: { gan_zhi: '乙酉', stem: '乙', branch: '酉', hidden_stems: [] },
+        interaction_rule_version: 'mingli_interactions_v1',
+        interactions: [],
+      },
+      {
+        window_key: 'liunian:2026:丙午',
+        kind: 'liunian',
+        bucket: 'parent_liunian',
+        detail_level: 'evidence',
+        parent_window_keys: ['dayun:2020:乙酉'],
+        is_current: true,
+        target_window: { valid_from: '2026-01-01', valid_until: '2026-12-31' },
+        timing: { gan_zhi: '丙午', stem: '丙', branch: '午', hidden_stems: [] },
+        interaction_rule_version: 'mingli_interactions_v1',
+        interactions: [],
+      },
+      {
+        window_key: 'liuyue:2026-08-07:丙戌',
+        kind: 'liuyue',
+        bucket: 'recent_12_liuyue',
+        detail_level: 'evidence',
+        parent_window_keys: ['dayun:2020:乙酉', 'liunian:2026:丙午'],
+        is_current: true,
+        target_window: { valid_from: '2026-08-07', valid_until: '2026-09-06' },
+        timing: { gan_zhi: '丙戌', stem: '丙', branch: '戌', hidden_stems: [] },
+        interaction_rule_version: 'mingli_interactions_v1',
+        interactions: [],
+      },
+    ],
     available_fact_refs: facts,
-    relationship_status: item.relationshipStatus,
+    reality_context: {
+      life_stage: { primary: null, tags: [] },
+      work_study: {
+        mode: null,
+        career_status: null,
+        occupation: null,
+        industry: null,
+        study_status: null,
+        school: null,
+        current_goal: null,
+      },
+      relationship: { status: item.relationshipStatus, current_focus: null },
+      saved_understanding: { current_focus: [], expression_preferences: [] },
+    },
     preference_context: preferenceContext(item),
     content_history: [{
       semantic_key: 'love:love_overview:describe:baseline:baseline_pattern',
@@ -102,12 +160,14 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
       opened: false,
       last_seen_at: '2026-08-07T08:00:00.000Z',
     }],
+    time_window_history: [],
     ...overrides,
   };
 }
 
 function rawCard(item: EvalCase, index: number, factRefs = [item.factRef]) {
   return {
+    primary_time_window_key: primaryWindowKey(item),
     content_profile: {
       domain: item.domain,
       topic_key: item.topicKey,
@@ -127,10 +187,19 @@ function rawCard(item: EvalCase, index: number, factRefs = [item.factRef]) {
   };
 }
 
+function primaryWindowKey(item: EvalCase): string {
+  const keys = {
+    baseline: 'natal',
+    phase: 'dayun:2020:乙酉',
+    year: 'liunian:2026:丙午',
+    month: 'liuyue:2026-08-07:丙戌',
+  } as const;
+  return keys[item.horizon];
+}
+
 function validOutput(item: EvalCase, factRefs = [item.factRef]) {
   return {
-    deck_cards: Array.from({ length: 6 }, (_, index) => rawCard(item, index, factRefs)),
-    center_cards: Array.from({ length: 3 }, (_, index) => rawCard(item, index + 6, factRefs)),
+    candidates: Array.from({ length: 24 }, (_, index) => rawCard(item, index, factRefs)),
   };
 }
 
@@ -158,28 +227,30 @@ async function evaluateCase(item: EvalCase): Promise<void> {
     () => `eval-${item.id}-${sequence++}`,
   );
 
-  assert.equal(generated.deck_cards.length, 6, item.id);
-  assert.equal(generated.center_cards.length, 3, item.id);
+  assert.equal(generated.candidates.length, 24, item.id);
   assert.equal(captured.generationConfig.responseMimeType, 'application/json', item.id);
   assert.equal(captured.generationConfig.candidateCount, 1, item.id);
 
   const sentInput = JSON.parse(captured.userPrompt.split('recommendation_input:\n')[1]);
   const sentPositions = sentInput.fortune_facts.natal.pillars.map((pillar: { position: string }) => pillar.position);
   assert.equal(sentPositions.includes('hour'), !item.unknownHour, `${item.id}: actual pillars must be preserved`);
-  assert.equal(sentInput.relationship_status, item.relationshipStatus, item.id);
+  assert.equal(sentInput.reality_context.relationship.status, item.relationshipStatus, item.id);
   assert.deepEqual(sentInput.preference_context, preferenceContext(item), item.id);
   assert.equal(sentInput.available_fact_refs.some((fact: { ref: string }) => fact.ref === item.factRef), true, item.id);
 
-  const allCards = [...generated.deck_cards, ...generated.center_cards];
-  const ids = new Set(allCards.map((card) => card.candidate_id));
-  assert.equal(ids.size, 9, `${item.id}: IDs must be unique`);
-  allCards.forEach((card, index) => {
-    const expectedSurface = index < 6 ? 'deck' : 'center';
-    const expectedPosition = index < 6 ? index : index - 6;
-    assert.equal(card.surface, expectedSurface, item.id);
-    assert.equal(card.position, expectedPosition, item.id);
+  const ids = new Set(generated.candidates.map((card) => card.candidate_id));
+  assert.equal(ids.size, 24, `${item.id}: IDs must be unique`);
+  generated.candidates.forEach((card, index) => {
+    assert.equal(card.pool_position, index, item.id);
+    assert.equal((card as any).surface, undefined, item.id);
+    assert.equal((card as any).position, undefined, item.id);
     assert.equal(card.selection_role, item.expectedSelectionRole, item.id);
     assert.deepEqual(card.event_hypothesis.fact_refs, [item.factRef], item.id);
+    assert.equal(
+      card.primary_time_window_key,
+      item.horizon === 'baseline' ? null : primaryWindowKey(item),
+      item.id,
+    );
     assert.deepEqual(card.validity, {
       valid_from: item.expectedValidity.validFrom,
       valid_until: item.expectedValidity.validUntil,
@@ -239,8 +310,8 @@ async function main(): Promise<void> {
     );
 
     const wrongTopicForDomain = validOutput(sample) as any;
-    wrongTopicForDomain.deck_cards[0].content_profile = {
-      ...wrongTopicForDomain.deck_cards[0].content_profile,
+    wrongTopicForDomain.candidates[0].content_profile = {
+      ...wrongTopicForDomain.candidates[0].content_profile,
       domain: 'love',
       topic_key: 'career_direction',
     };

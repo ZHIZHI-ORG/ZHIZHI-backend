@@ -9,6 +9,9 @@ node_modules/
 # Vercel
 .vercel/
 
+# Supabase CLI 本地项目绑定缓存
+supabase/.temp/
+
 # 编译产物
 dist/
 build/

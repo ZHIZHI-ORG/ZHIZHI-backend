@@ -7,6 +7,10 @@ const migrationPath = resolve(
   '../../supabase/migrations/013_recommendation_engine.sql',
 );
 const migration = readFileSync(migrationPath, 'utf8');
+const poolMigration = readFileSync(resolve(
+  __dirname,
+  '../../supabase/migrations/014_recommendation_candidate_pool.sql',
+), 'utf8');
 
 function sectionAfter(anchor: string): string {
   const start = migration.indexOf(anchor);
@@ -161,11 +165,125 @@ run('a global provider-attempt budget bounds account farms without entering reco
   assert.match(migration, /REVOKE ALL ON TABLE recommendation_provider_attempts FROM PUBLIC, anon, authenticated/);
 });
 
-run('stored batch JSON keeps a bounded MVP payload of six deck and three center cards', () => {
+run('legacy V1 batch JSON remains bounded at six deck and three center cards', () => {
   assert.match(migration, /jsonb_typeof\(cards_json -> 'deck_cards'\) = 'array'/);
   assert.match(migration, /jsonb_array_length\(cards_json -> 'deck_cards'\) = 6/);
   assert.match(migration, /jsonb_typeof\(cards_json -> 'center_cards'\) = 'array'/);
   assert.match(migration, /jsonb_array_length\(cards_json -> 'center_cards'\) = 3/);
+});
+
+run('V2 stores one immutable 24-card pool separately from an 8+4 display projection', () => {
+  assert.match(poolMigration, /ADD COLUMN IF NOT EXISTS candidate_pool_json JSONB/);
+  assert.match(
+    poolMigration,
+    /candidate_pool_json ->> 'pool_version' IS DISTINCT FROM 'recommendation_pool_v1'/,
+  );
+  assert.match(poolMigration, /jsonb_array_length\(candidate_pool_json -> 'candidates'\) = 24/);
+  assert.match(poolMigration, /output_schema_version = 'recommendation_output_v2'/);
+  assert.match(poolMigration, /jsonb_array_length\(cards_json -> 'deck_cards'\) = 8/);
+  assert.match(poolMigration, /jsonb_array_length\(cards_json -> 'center_cards'\) = 4/);
+  assert.match(poolMigration, /output_schema_version = 'recommendation_output_v1'/);
+  assert.match(poolMigration, /jsonb_array_length\(cards_json -> 'deck_cards'\) = 6/);
+  assert.match(poolMigration, /jsonb_array_length\(cards_json -> 'center_cards'\) = 3/);
+  assert.match(poolMigration, /jsonb_typeof\(cards_json\) IS DISTINCT FROM 'object'/);
+  assert.match(poolMigration, /jsonb_typeof\(candidate_pool_json -> 'candidates'\) IS DISTINCT FROM 'array'/);
+  assert.match(poolMigration, /after_batch_id IS NOT NULL/);
+  assert.match(poolMigration, /after_batch_id IS NOT DISTINCT FROM pool_source_batch_id/);
+  assert.match(poolMigration, /generation_kind = 'pool'[\s\S]*?output_schema_version = 'recommendation_output_v2'/);
+});
+
+run('pool continuation consumes only the 12 undisplayed candidates and does not reserve provider cost', () => {
+  const start = poolMigration.indexOf('CREATE OR REPLACE FUNCTION create_recommendation_pool_continuation(');
+  assert.notEqual(start, -1);
+  const continuation = poolMigration.slice(start);
+  assert.match(continuation, /pool continuation must contain 8 deck and 4 center cards/);
+  assert.match(continuation, /v_pool_count <> 24/);
+  assert.match(continuation, /v_source_display_count <> 12/);
+  assert.match(continuation, /v_selected_count <> 12/);
+  assert.match(continuation, /pool continuation must contain every and only remaining candidate/);
+  assert.match(continuation, /selected\.card - 'surface' - 'position'/);
+  assert.match(continuation, /exact projections of the candidate pool/);
+  assert.match(continuation, /'pool'/);
+  assert.match(continuation, /pool_source_batch_id/);
+  assert.doesNotMatch(continuation, /INSERT INTO recommendation_provider_attempts/);
+});
+
+run('V2 finalize atomically saves the generated pool and display selection context', () => {
+  const start = poolMigration.indexOf('CREATE OR REPLACE FUNCTION finalize_recommendation_batch(');
+  assert.notEqual(start, -1);
+  const finalize = poolMigration.slice(start).split(
+    'CREATE OR REPLACE FUNCTION create_recommendation_pool_continuation(',
+  )[0];
+  assert.match(finalize, /p_candidate_pool_json JSONB/);
+  assert.match(finalize, /p_selection_context_json JSONB/);
+  assert.match(finalize, /p_generation_metrics_json JSONB/);
+  assert.match(finalize, /candidate_pool_json = p_candidate_pool_json/);
+  assert.match(finalize, /selection_context_json = p_selection_context_json/);
+  assert.match(finalize, /generation_metrics_json = p_generation_metrics_json/);
+  assert.match(finalize, /p_generation_metrics_json ->> 'outcome' IS DISTINCT FROM 'success'/);
+  assert.match(finalize, /batch\.generation_kind = 'ai'/);
+  assert.match(finalize, /displayed\.card - 'surface' - 'position'/);
+  assert.match(finalize, /first display cards must be exact projections of the candidate pool/);
+  assert.match(finalize, /entry\.value ->> 'pool_position' IS DISTINCT FROM \(entry\.ordinality - 1\)::TEXT/);
+  assert.match(finalize, /jsonb_typeof\(entry\.value -> 'pool_position'\) IS DISTINCT FROM 'number'/);
+  assert.match(finalize, /candidate_id' IS DISTINCT FROM btrim/);
+  assert.match(finalize, /primary_time_window_key/);
+  assert.match(finalize, /referenced_window_keys/);
+  assert.match(finalize, /jsonb_array_elements\(entry\.value -> 'referenced_window_keys'\)/);
+  assert.match(finalize, /COUNT\(DISTINCT key\.value #>> '\{\}'\)/);
+  assert.match(finalize, /jsonb_array_length\(entry\.value -> 'referenced_window_keys'\) = 0/);
+  assert.match(finalize, /primary_time_window_key'\) IS DISTINCT FROM 'null'/);
+  assert.doesNotMatch(
+    poolMigration,
+    /DROP FUNCTION IF EXISTS finalize_recommendation_batch\(\s*UUID, UUID, UUID, BIGINT, JSONB, JSONB, TEXT/,
+  );
+});
+
+run('time-window behavior labels are derived from frozen cards without changing the client event API', () => {
+  assert.match(poolMigration, /ADD COLUMN IF NOT EXISTS primary_time_window_key TEXT/);
+  assert.match(poolMigration, /ADD COLUMN IF NOT EXISTS referenced_window_keys TEXT\[\]/);
+  assert.match(poolMigration, /primary_time_window_key = ANY\(referenced_window_keys\)/);
+  assert.match(poolMigration, /CREATE OR REPLACE FUNCTION derive_recommendation_event_time_windows\(\)/);
+  assert.match(poolMigration, /FROM jsonb_array_elements\(batch\.cards_json -> 'deck_cards'\)/);
+  assert.match(poolMigration, /FROM jsonb_array_elements\(batch\.cards_json -> 'center_cards'\)/);
+  assert.match(poolMigration, /NEW\.primary_time_window_key := v_primary_time_window_key/);
+  assert.match(poolMigration, /NEW\.referenced_window_keys := v_referenced_window_keys/);
+  assert.match(poolMigration, /BEFORE INSERT ON recommendation_events/);
+
+  const eventFunction = sectionAfter('CREATE OR REPLACE FUNCTION record_recommendation_event(')
+    .split('ALTER TABLE recommendation_batches ENABLE ROW LEVEL SECURITY;')[0];
+  const signature = eventFunction.slice(0, eventFunction.indexOf(')\nRETURNS TEXT'));
+  assert.doesNotMatch(signature, /time_window/);
+});
+
+run('time-window memory separates primary exposure from interest and stays bounded', () => {
+  const start = poolMigration.indexOf('CREATE OR REPLACE FUNCTION get_recommendation_time_window_snapshot(');
+  assert.notEqual(start, -1);
+  const snapshot = poolMigration.slice(start);
+  assert.match(snapshot, /event\.created_at >= p_now - INTERVAL '90 days'/);
+  assert.match(snapshot, /event\.primary_time_window_key AS window_key/);
+  assert.match(snapshot, /COUNT\(\*\) FILTER \(WHERE event\.event_type = 'exposure'\) AS primary_exposures/);
+  assert.match(snapshot, /COUNT\(\*\) FILTER \(WHERE event\.event_type = 'open'\) AS primary_opens/);
+  assert.match(snapshot, /LIMIT 100/);
+  assert.match(snapshot, /event\.session_id = btrim\(p_session_id\)/);
+  assert.match(snapshot, /event\.created_at >= p_now - INTERVAL '12 hours'/);
+  assert.match(snapshot, /'current_session_windows'/);
+  assert.match(snapshot, /CREATE OR REPLACE FUNCTION get_recommendation_memory_snapshot\(/);
+  assert.match(snapshot, /get_recommendation_preference_snapshot\(/);
+  assert.match(
+    snapshot,
+    /get_recommendation_time_window_snapshot\([\s\S]*?RETURNS JSONB[\s\S]*?LANGUAGE plpgsql[\s\S]*?STABLE/,
+  );
+  assert.match(
+    snapshot,
+    /ALTER FUNCTION get_recommendation_preference_snapshot\([\s\S]*?\) STABLE/,
+  );
+  assert.match(
+    snapshot,
+    /get_recommendation_memory_snapshot\([\s\S]*?RETURNS JSONB[\s\S]*?LANGUAGE plpgsql[\s\S]*?STABLE/,
+  );
+  assert.match(snapshot, /p_now - INTERVAL '12 hours'/);
+  assert.doesNotMatch(snapshot, /importance|domain_candidates|intensity/);
 });
 
 run('event RPC derives labels from immutable cards rather than client parameters', () => {
@@ -225,6 +343,10 @@ run('product tables and the detached cost ledger are private; RPCs are service-r
   assert.match(migration, /CREATE OR REPLACE FUNCTION get_recommendation_preference_snapshot\([\s\S]*?SECURITY DEFINER/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION record_recommendation_event\([\s\S]*?TO service_role/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION get_recommendation_preference_snapshot\([\s\S]*?TO service_role/);
+  assert.match(poolMigration, /REVOKE ALL ON FUNCTION get_recommendation_time_window_snapshot\([\s\S]*?FROM PUBLIC, anon, authenticated/);
+  assert.match(poolMigration, /GRANT EXECUTE ON FUNCTION get_recommendation_time_window_snapshot\([\s\S]*?TO service_role/);
+  assert.match(poolMigration, /REVOKE ALL ON FUNCTION get_recommendation_memory_snapshot\([\s\S]*?FROM PUBLIC, anon, authenticated/);
+  assert.match(poolMigration, /GRANT EXECUTE ON FUNCTION get_recommendation_memory_snapshot\([\s\S]*?TO service_role/);
 });
 
 console.log('Recommendation migration static checks passed.');

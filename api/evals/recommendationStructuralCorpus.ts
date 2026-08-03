@@ -3,8 +3,8 @@
  *
  * These are intentionally not claims about a live Gemini model's 命理 quality.
  * They make the non-negotiable product boundaries executable: factual refs,
- * three-pillar preservation, valid time windows, explicit preference context,
- * and the P1/P2 roles that the model is allowed to emit.
+ * three-pillar preservation, bounded valid time windows, explicit reality and
+ * preference context, time-window memory, and the P1/P2 roles the model may emit.
  */
 
 export type RecommendationEvalHorizon = 'baseline' | 'phase' | 'year' | 'month';
@@ -52,21 +52,21 @@ const horizons: Array<{
   },
   {
     horizon: 'phase',
-    factRef: 'timing:dayun',
+    factRef: 'time:dayun:2020:乙酉:timing',
     validFrom: '2020-01-01',
     validUntil: '2029-12-31',
     role: 'p1_mingli_change',
   },
   {
     horizon: 'year',
-    factRef: 'timing:liunian',
+    factRef: 'time:liunian:2026:丙午:timing',
     validFrom: '2026-01-01',
     validUntil: '2026-12-31',
     role: 'p1_mingli_change',
   },
   {
     horizon: 'month',
-    factRef: 'timing:liuyue',
+    factRef: 'time:liuyue:2026-08-07:丙戌:timing',
     validFrom: '2026-08-07',
     validUntil: '2026-09-06',
     role: 'p1_mingli_change',

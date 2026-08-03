@@ -1,16 +1,20 @@
 import { supabase } from '../supabase';
 import type {
   RecommendationAiInput,
-  RecommendationAiOutput,
+  RecommendationAiGenerationMetrics,
+  RecommendationBatchCards,
   RecommendationBehaviorEventType,
+  RecommendationCandidatePool,
   RecommendationContentHistoryItem,
   RecommendationContentHorizon,
   RecommendationDomain,
   RecommendationPreferenceDimension,
   RecommendationQuestionJob,
   RecommendationSessionOpen,
+  RecommendationSelectionContext,
   RecommendationSurface,
   RecommendationTopicKey,
+  RecommendationTimeWindowHistoryItem,
 } from '../../models/Recommendation';
 
 export type RecommendationBatchStatus = 'generating' | 'retry_wait' | 'ready';
@@ -45,7 +49,12 @@ export interface RecommendationBatchRow {
   attempt_count: number;
   next_attempt_at: string | null;
   input_snapshot_json: RecommendationAiInput | null;
-  cards_json: RecommendationAiOutput | null;
+  cards_json: RecommendationBatchCards | null;
+  candidate_pool_json: RecommendationCandidatePool | null;
+  generation_kind: 'ai' | 'pool';
+  pool_source_batch_id: string | null;
+  selection_context_json: RecommendationSelectionContext | null;
+  generation_metrics_json: RecommendationAiGenerationMetrics | null;
   prompt_version: string | null;
   output_schema_version: string | null;
   taxonomy_version: string | null;
@@ -88,11 +97,21 @@ export interface FinalizeRecommendationBatchInput {
   leaseToken: string;
   leaseEpoch: number;
   inputSnapshot: RecommendationAiInput;
-  cards: RecommendationAiOutput;
+  cards: RecommendationBatchCards;
+  candidatePool: RecommendationCandidatePool;
+  selectionContext: RecommendationSelectionContext;
+  generationMetrics: RecommendationAiGenerationMetrics;
   promptVersion: string;
   outputSchemaVersion: string;
   taxonomyVersion: string;
   modelId: string;
+}
+
+export interface CreateRecommendationPoolContinuationInput {
+  userId: string;
+  sourceBatchId: string;
+  cards: RecommendationBatchCards;
+  selectionContext: RecommendationSelectionContext;
 }
 
 export interface MarkRecommendationBatchRetryWaitInput {
@@ -127,6 +146,7 @@ export interface RecommendationPreferenceSnapshot {
   long_term_90d: RecommendationAggregatedInterestSignal[];
   current_session_opens: RecommendationSessionOpen[];
   content_history: RecommendationContentHistoryItem[];
+  time_window_history: RecommendationTimeWindowHistoryItem[];
 }
 
 export interface GetRecommendationPreferenceSnapshotInput {
@@ -177,6 +197,11 @@ const BATCH_COLUMNS = [
   'next_attempt_at',
   'input_snapshot_json',
   'cards_json',
+  'candidate_pool_json',
+  'generation_kind',
+  'pool_source_batch_id',
+  'selection_context_json',
+  'generation_metrics_json',
   'prompt_version',
   'output_schema_version',
   'taxonomy_version',
@@ -362,6 +387,9 @@ export class RecommendationRepository {
       p_lease_epoch: input.leaseEpoch,
       p_input_snapshot_json: input.inputSnapshot,
       p_cards_json: input.cards,
+      p_candidate_pool_json: input.candidatePool,
+      p_selection_context_json: input.selectionContext,
+      p_generation_metrics_json: input.generationMetrics,
       p_prompt_version: input.promptVersion,
       p_output_schema_version: input.outputSchemaVersion,
       p_taxonomy_version: input.taxonomyVersion,
@@ -373,6 +401,29 @@ export class RecommendationRepository {
     }
 
     return data === true;
+  }
+
+  async createPoolContinuation(
+    input: CreateRecommendationPoolContinuationInput,
+  ): Promise<string> {
+    const { data, error } = await supabase.rpc('create_recommendation_pool_continuation', {
+      p_user_id: input.userId,
+      p_source_batch_id: input.sourceBatchId,
+      p_cards_json: input.cards,
+      p_selection_context_json: input.selectionContext,
+    });
+
+    if (error) {
+      throw repositoryError('createPoolContinuation', error);
+    }
+
+    if (typeof data !== 'string' || !data.trim()) {
+      throw new RecommendationRepositoryError(
+        'createPoolContinuation',
+        '候选池续批 RPC 返回了无效 batch id',
+      );
+    }
+    return data;
   }
 
   async markRetryWait(input: MarkRecommendationBatchRetryWaitInput): Promise<boolean> {
@@ -414,18 +465,38 @@ export class RecommendationRepository {
   async getPreferenceSnapshot(
     input: GetRecommendationPreferenceSnapshotInput,
   ): Promise<RecommendationPreferenceSnapshot> {
-    const { data, error } = await supabase.rpc('get_recommendation_preference_snapshot', {
+    const parameters = {
       p_user_id: input.userId,
       p_profile_id: input.profileId,
       p_session_id: input.sessionId,
       p_now: input.now,
-    });
+    };
+    const { data, error } = await supabase.rpc(
+      'get_recommendation_memory_snapshot',
+      parameters,
+    );
 
     if (error) {
       throw repositoryError('getPreferenceSnapshot', error);
     }
 
-    return toPreferenceSnapshot(data);
+    const preference = toPreferenceSnapshot(data);
+    const timeWindow = toTimeWindowSnapshot(data);
+    const sessionWindows = new Map(
+      timeWindow.current_session_windows.map((item) => [item.candidate_id, item]),
+    );
+    return {
+      ...preference,
+      current_session_opens: preference.current_session_opens.map((open) => {
+        const window = sessionWindows.get(open.candidate_id);
+        return {
+          ...open,
+          primary_time_window_key: window?.primary_time_window_key || null,
+          referenced_window_keys: window?.referenced_window_keys || [],
+        };
+      }),
+      time_window_history: timeWindow.time_window_history,
+    };
   }
 
   async recordEvent(
@@ -495,6 +566,7 @@ function toPreferenceSnapshot(data: unknown): RecommendationPreferenceSnapshot {
       .map((value, index) => toSessionOpen(value, `current_session_opens[${index}]`)),
     content_history: requiredArray(root.content_history, 'content_history', 60)
       .map((value, index) => toContentHistory(value, `content_history[${index}]`)),
+    time_window_history: [],
   };
 }
 
@@ -526,7 +598,73 @@ function toSessionOpen(value: unknown, path: string): RecommendationSessionOpen 
       question_job: requiredText(profile.question_job, `${path}.content_profile.question_job`, 128) as RecommendationQuestionJob,
       content_horizon: requiredText(profile.content_horizon, `${path}.content_profile.content_horizon`, 128) as RecommendationContentHorizon,
     },
+    primary_time_window_key: null,
+    referenced_window_keys: [],
     opened_at: requiredText(row.opened_at, `${path}.opened_at`, 64),
+  };
+}
+
+interface RecommendationSessionWindowContext {
+  candidate_id: string;
+  primary_time_window_key: string | null;
+  referenced_window_keys: string[];
+}
+
+function toTimeWindowSnapshot(data: unknown): {
+  time_window_history: RecommendationTimeWindowHistoryItem[];
+  current_session_windows: RecommendationSessionWindowContext[];
+} {
+  const root = requiredRecord(data, '推荐时间窗口聚合结果');
+  return {
+    time_window_history: requiredArray(root.time_window_history, 'time_window_history', 100)
+      .map((value, index) => toTimeWindowHistory(value, `time_window_history[${index}]`)),
+    current_session_windows: requiredArray(
+      root.current_session_windows,
+      'current_session_windows',
+      20,
+    ).map((value, index) => {
+      const path = `current_session_windows[${index}]`;
+      const row = requiredRecord(value, path);
+      return {
+        candidate_id: requiredText(row.candidate_id, `${path}.candidate_id`, 128),
+        primary_time_window_key: nullableText(
+          row.primary_time_window_key,
+          `${path}.primary_time_window_key`,
+          256,
+        ),
+        referenced_window_keys: requiredTextArray(
+          row.referenced_window_keys,
+          `${path}.referenced_window_keys`,
+          6,
+          256,
+        ),
+      };
+    }),
+  };
+}
+
+function toTimeWindowHistory(
+  value: unknown,
+  path: string,
+): RecommendationTimeWindowHistoryItem {
+  const row = requiredRecord(value, path);
+  return {
+    window_key: requiredText(row.window_key, `${path}.window_key`, 256),
+    primary_exposures: requiredNonNegativeNumber(
+      row.primary_exposures,
+      `${path}.primary_exposures`,
+    ),
+    primary_opens: requiredNonNegativeNumber(row.primary_opens, `${path}.primary_opens`),
+    last_primary_exposed_at: nullableText(
+      row.last_primary_exposed_at,
+      `${path}.last_primary_exposed_at`,
+      64,
+    ),
+    last_primary_opened_at: nullableText(
+      row.last_primary_opened_at,
+      `${path}.last_primary_opened_at`,
+      64,
+    ),
   };
 }
 
@@ -567,6 +705,29 @@ function requiredText(value: unknown, path: string, maximum: number): string {
     throw new RecommendationRepositoryError('decode', `${path} 必须是非空文本`);
   }
   return value;
+}
+
+function nullableText(value: unknown, path: string, maximum: number): string | null {
+  if (value === null) return null;
+  return requiredText(value, path, maximum);
+}
+
+function requiredTextArray(
+  value: unknown,
+  path: string,
+  maximumItems: number,
+  maximumTextLength: number,
+): string[] {
+  if (!Array.isArray(value) || value.length > maximumItems) {
+    throw new RecommendationRepositoryError('decode', `${path} 必须是最多 ${maximumItems} 项的数组`);
+  }
+  const result = value.map((item, index) => (
+    requiredText(item, `${path}[${index}]`, maximumTextLength)
+  ));
+  if (new Set(result).size !== result.length) {
+    throw new RecommendationRepositoryError('decode', `${path} 不能包含重复项`);
+  }
+  return result;
 }
 
 function requiredNonNegativeNumber(value: unknown, path: string): number {
