@@ -140,7 +140,8 @@ export class DailyFortuneAiError extends Error {
     message: string,
     public readonly retryable: boolean,
     public readonly providerStatus?: number,
-    public readonly finishReason?: string
+    public readonly finishReason?: string,
+    public readonly providerDetail?: string
   ) {
     super(message);
     this.name = 'DailyFortuneAiError';
@@ -291,7 +292,7 @@ export class GeminiDailyFortuneTransport implements DailyFortuneAiTransport {
       }
 
       if (!response.ok) {
-        throw classifyProviderHttpError(response.status);
+        throw classifyProviderHttpError(response.status, rawBody);
       }
 
       try {
@@ -661,13 +662,16 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-function classifyProviderHttpError(status: number): DailyFortuneAiError {
+function classifyProviderHttpError(status: number, rawBody: string): DailyFortuneAiError {
+  const providerDetail = readProviderErrorDetail(rawBody);
   if (status === 401 || status === 403) {
     return new DailyFortuneAiError(
       'provider_auth',
       `Daily fortune provider authentication failed (${status})`,
       false,
-      status
+      status,
+      undefined,
+      providerDetail
     );
   }
   if (status === 429) {
@@ -675,7 +679,9 @@ function classifyProviderHttpError(status: number): DailyFortuneAiError {
       'provider_rate_limit',
       'Daily fortune provider rate limit exceeded',
       true,
-      status
+      status,
+      undefined,
+      providerDetail
     );
   }
   if (status >= 500) {
@@ -683,15 +689,32 @@ function classifyProviderHttpError(status: number): DailyFortuneAiError {
       'provider_unavailable',
       `Daily fortune provider is unavailable (${status})`,
       true,
-      status
+      status,
+      undefined,
+      providerDetail
     );
   }
   return new DailyFortuneAiError(
     'provider_request',
     `Daily fortune provider rejected the request (${status})`,
     false,
-    status
+    status,
+    undefined,
+    providerDetail
   );
+}
+
+function readProviderErrorDetail(rawBody: string): string | undefined {
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (!isRecord(parsed) || !isRecord(parsed.error) || typeof parsed.error.message !== 'string') {
+      return undefined;
+    }
+    const normalized = parsed.error.message.replace(/\s+/g, ' ').trim();
+    return normalized ? normalized.slice(0, 500) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export const DAILY_FORTUNE_AI_METADATA = {

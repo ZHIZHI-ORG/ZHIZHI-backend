@@ -42,6 +42,8 @@ fortune_facts 只提供原局排盘、十神、关系成员和成立条件等可
 
 每条作用关系的 members 是共同构成关系的无序成员集合，不表示谁发起、谁被作用或现实因果方向。full_match 只表示该条硬规则要求的成员齐全，不表示关系更强、事件更可能或必然发生。不得自行补出输入中不存在的合冲刑穿关系。
 
+available_fact_refs 中 ref 是必须原样复制到 event_hypothesis.fact_refs 的短编号，source_ref 只用于理解它对应哪条硬事实。不得输出 source_ref，也不得根据 window_key 或 interaction.id 自行拼接证据编号。
+
 time_windows 中 detail_level=evidence 的窗口带有本层确定关系，可支持具体变化问题；detail_level=index 的窗口只提供时间索引和阶段背景，不能单独支撑具体引动事件。窗口在数组中的位置和 bucket 都不是命理重要性评分。未被本次选中的流月不代表没有变化。
 
 行为数据的含义固定如下：open 只是弱正向兴趣；exposure 只是一次真实展示机会和打开率分母；未打开、划走、停留短或没有行为都不是负反馈。近期兴趣、长期兴趣和当前会话必须分别理解，不能把一次打开写成永久偏好。
@@ -70,7 +72,7 @@ export const RECOMMENDATION_DEVELOPER_PROMPT = `请用一次生成完成 24 张�
 - topic_key 必须属于对应 domain 的固定目录：${JSON.stringify(RECOMMENDATION_TOPIC_CATALOG)}
 - question_job 只能是 describe、explain、forecast、compare、act。
 - content_horizon 只能是 baseline、phase、year、month；推荐大卡和中心卡不生成流日问题。
-- 每张卡片的 event_hypothesis 必须说明一个可能的现实题材，并引用 1–6 个 available_fact_refs 中真实存在的 ref。
+- 每张卡片的 event_hypothesis 必须说明一个可能的现实题材，并原样引用 1–6 个 available_fact_refs.ref 短编号（如 F1、F2）。不得复制 source_ref 或自行拼接证据 ID。
 - 每张卡片必须输出 primary_time_window_key。只引用原局事实的 baseline 卡填字符串 natal；其余卡必须填写自己引用的一个真实 window_key，并且与 content_horizon 对应：phase 对应 dayun、year 对应 liunian、month 对应 liuyue。
 - description 用于稳定模式描述；possibility 用于有事实支持的可能变化；conditional 用于依赖现实条件或关系状态的假设。
 
@@ -150,8 +152,9 @@ export const RECOMMENDATION_RESPONSE_SCHEMA = {
   properties: {
     candidates: {
       type: 'array',
-      minItems: RECOMMENDATION_CANDIDATE_POOL_SIZE,
-      maxItems: RECOMMENDATION_CANDIDATE_POOL_SIZE,
+      // Gemini counts the requested cardinality of a nested object array
+      // toward schema complexity and rejects this shape at 24 items. The
+      // prompt requests 24 and parseRecommendationOutput remains authoritative.
       items: RAW_CARD_SCHEMA,
     },
   },
@@ -181,6 +184,15 @@ interface RecommendationFactIndex {
   windowKinds: Map<string, RecommendationTimeWindowKind>;
 }
 
+interface ProviderFactReference extends RecommendationFactReference {
+  source_ref: string;
+}
+
+interface ProviderFactAliases {
+  aliasToCanonical: Map<string, string>;
+  references: ProviderFactReference[];
+}
+
 type CandidateIdFactory = () => string;
 
 const realTransport = new GeminiDailyFortuneTransport();
@@ -191,10 +203,15 @@ export async function generateRecommendationCandidatesWithAi(
   createCandidateId: CandidateIdFactory = randomUUID,
 ): Promise<RecommendationAiOutput> {
   const factIndex = validateInputAndIndexFacts(input);
+  const providerFactAliases = buildProviderFactAliases(input.available_fact_refs);
+  const providerInput = {
+    ...input,
+    available_fact_refs: providerFactAliases.references,
+  };
   const userPrompt = `${RECOMMENDATION_DEVELOPER_PROMPT}
 
 recommendation_input:
-${JSON.stringify(input)}`;
+${JSON.stringify(providerInput)}`;
   const model = readRequiredModel();
   const request = {
     model,
@@ -208,7 +225,9 @@ ${JSON.stringify(input)}`;
       candidateCount: 1,
       maxOutputTokens: 16384,
       responseMimeType: 'application/json',
-      responseJsonSchema: RECOMMENDATION_RESPONSE_SCHEMA,
+      responseJsonSchema: buildProviderResponseSchema(
+        providerFactAliases.references.map((reference) => reference.ref),
+      ),
     },
   } as const;
   const startedAt = Date.now();
@@ -245,7 +264,11 @@ ${JSON.stringify(input)}`;
   }
 
   try {
-    const raw = parseRecommendationOutput(parsed, factIndex);
+    const raw = parseRecommendationOutput(
+      parsed,
+      factIndex,
+      providerFactAliases.aliasToCanonical,
+    );
     const output = materializeCandidates(raw, factIndex, createCandidateId);
     return {
       ...output,
@@ -403,6 +426,7 @@ function validateInputAndIndexFacts(
 function parseRecommendationOutput(
   value: unknown,
   factIndex: RecommendationFactIndex,
+  aliasToCanonical: Map<string, string>,
 ): RawRecommendationOutput {
   const root = expectExactRecord(value, ['candidates'], 'content');
   const candidates = expectCardArray(
@@ -411,6 +435,7 @@ function parseRecommendationOutput(
     RECOMMENDATION_CANDIDATE_POOL_SIZE,
     'candidates',
     factIndex,
+    aliasToCanonical,
   );
   return { candidates };
 }
@@ -421,17 +446,24 @@ function expectCardArray(
   maximum: number,
   path: string,
   factIndex: RecommendationFactIndex,
+  aliasToCanonical: Map<string, string>,
 ): RawRecommendationCard[] {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
     throw new Error(`${path} must contain between ${minimum} and ${maximum} entries`);
   }
-  return value.map((card, index) => parseCard(card, `${path}[${index}]`, factIndex));
+  return value.map((card, index) => parseCard(
+    card,
+    `${path}[${index}]`,
+    factIndex,
+    aliasToCanonical,
+  ));
 }
 
 function parseCard(
   value: unknown,
   path: string,
   factIndex: RecommendationFactIndex,
+  aliasToCanonical: Map<string, string>,
 ): RawRecommendationCard {
   const card = expectExactRecord(value, [
     'primary_time_window_key',
@@ -475,6 +507,7 @@ function parseCard(
     hypothesisValue.fact_refs,
     `${path}.event_hypothesis.fact_refs`,
     factIndex.references,
+    aliasToCanonical,
   );
   return {
     primary_time_window_key: expectBoundedText(
@@ -531,11 +564,19 @@ function expectFactRefs(
   value: unknown,
   path: string,
   factReferences: Map<string, RecommendationFactReference>,
+  aliasToCanonical: Map<string, string>,
 ): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 6) {
     throw new Error(`${path} must contain between 1 and 6 entries`);
   }
-  const refs = value.map((ref, index) => expectBoundedText(ref, 1, 256, `${path}[${index}]`));
+  const refs = value.map((ref, index) => {
+    const alias = expectBoundedText(ref, 1, 32, `${path}[${index}]`);
+    const canonical = aliasToCanonical.get(alias);
+    if (!canonical) {
+      throw new Error(`${path} contains unknown ref alias: ${alias}`);
+    }
+    return canonical;
+  });
   if (new Set(refs).size !== refs.length) {
     throw new Error(`${path} must not contain duplicate refs`);
   }
@@ -547,6 +588,50 @@ function expectFactRefs(
   // event shape and for using conditional language; the server only preserves
   // a traceable reference and rejects fabricated IDs.
   return refs;
+}
+
+function buildProviderFactAliases(
+  facts: RecommendationFactReference[],
+): ProviderFactAliases {
+  const aliasToCanonical = new Map<string, string>();
+  const references = facts.map((fact, index) => {
+    const alias = `F${index + 1}`;
+    aliasToCanonical.set(alias, fact.ref);
+    return {
+      ref: alias,
+      source_ref: fact.ref,
+      valid_from: fact.valid_from,
+      valid_until: fact.valid_until,
+    };
+  });
+  return { aliasToCanonical, references };
+}
+
+function buildProviderResponseSchema(factAliases: string[]) {
+  return {
+    ...RECOMMENDATION_RESPONSE_SCHEMA,
+    properties: {
+      candidates: {
+        ...RECOMMENDATION_RESPONSE_SCHEMA.properties.candidates,
+        items: {
+          ...RAW_CARD_SCHEMA,
+          properties: {
+            ...RAW_CARD_SCHEMA.properties,
+            event_hypothesis: {
+              ...RAW_CARD_SCHEMA.properties.event_hypothesis,
+              properties: {
+                ...RAW_CARD_SCHEMA.properties.event_hypothesis.properties,
+                fact_refs: {
+                  ...RAW_CARD_SCHEMA.properties.event_hypothesis.properties.fact_refs,
+                  items: { type: 'string', enum: factAliases },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  } as const;
 }
 
 function materializeCandidates(

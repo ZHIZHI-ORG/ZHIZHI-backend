@@ -378,6 +378,7 @@ async function main(): Promise<void> {
     );
     assert.equal(rateLimit.retryable, true);
     assert.equal(rateLimit.providerStatus, 429);
+    assert.equal(rateLimit.providerDetail, 'rate limit');
     assert.equal(rateLimitCalls, 1, 'provider 失败时不得在同一请求内自动重试');
 
     const unavailableTransport = new GeminiDailyFortuneTransport(

@@ -362,6 +362,8 @@ async function resolveRecommendationsWithDependencies(
         code: error.code,
         provider_status: error.providerStatus ?? null,
         finish_reason: error.finishReason ?? null,
+        provider_detail: error.providerDetail ?? null,
+        error_detail: error.message.replace(/\s+/g, ' ').slice(0, 500),
       });
     } else if (process.env.NODE_ENV === 'production') {
       console.warn('[recommendations] AI generation failed with an unexpected error');

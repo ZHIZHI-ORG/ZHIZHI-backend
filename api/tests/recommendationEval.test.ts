@@ -165,7 +165,16 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
   };
 }
 
-function rawCard(item: EvalCase, index: number, factRefs = [item.factRef]) {
+function factAlias(item: EvalCase): string {
+  return {
+    baseline: 'F1',
+    phase: 'F2',
+    year: 'F3',
+    month: 'F4',
+  }[item.horizon];
+}
+
+function rawCard(item: EvalCase, index: number, factRefs = [factAlias(item)]) {
   return {
     primary_time_window_key: primaryWindowKey(item),
     content_profile: {
@@ -197,7 +206,7 @@ function primaryWindowKey(item: EvalCase): string {
   return keys[item.horizon];
 }
 
-function validOutput(item: EvalCase, factRefs = [item.factRef]) {
+function validOutput(item: EvalCase, factRefs = [factAlias(item)]) {
   return {
     candidates: Array.from({ length: 24 }, (_, index) => rawCard(item, index, factRefs)),
   };
@@ -236,7 +245,9 @@ async function evaluateCase(item: EvalCase): Promise<void> {
   assert.equal(sentPositions.includes('hour'), !item.unknownHour, `${item.id}: actual pillars must be preserved`);
   assert.equal(sentInput.reality_context.relationship.status, item.relationshipStatus, item.id);
   assert.deepEqual(sentInput.preference_context, preferenceContext(item), item.id);
-  assert.equal(sentInput.available_fact_refs.some((fact: { ref: string }) => fact.ref === item.factRef), true, item.id);
+  assert.equal(sentInput.available_fact_refs.some((fact: { ref: string; source_ref: string }) => (
+    fact.ref === factAlias(item) && fact.source_ref === item.factRef
+  )), true, item.id);
 
   const ids = new Set(generated.candidates.map((card) => card.candidate_id));
   assert.equal(ids.size, 24, `${item.id}: IDs must be unique`);
@@ -288,7 +299,7 @@ async function main(): Promise<void> {
         ],
       }), {
         async generate() {
-          return response(validOutput(sample, ['window:a', 'window:b']));
+          return response(validOutput(sample, ['F1', 'F2']));
         },
       }),
       'invalid_schema',
@@ -303,7 +314,7 @@ async function main(): Promise<void> {
         }],
       }), {
         async generate() {
-          return response(validOutput(sample, ['inverted:window']));
+          return response(validOutput(sample, ['F1']));
         },
       }),
       'invalid_schema',

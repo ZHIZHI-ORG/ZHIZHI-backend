@@ -111,7 +111,7 @@ function rawCard(index: number, overrides: Record<string, unknown> = {}) {
       event_family: index === 0 ? 'relationship_progress' : 'adjustment',
       claim_mode: 'conditional',
       summary: `流月引动下值得留意的关系与节奏变化 ${index}`,
-      fact_refs: ['natal:pillar:day', 'time:liuyue:2026-08-07:丙戌:timing'],
+      fact_refs: ['F1', 'F2'],
     },
     question: `下个月这件事会怎样发展 ${index}？`,
     preview: `这张卡片根据当前流月和原局事实，说明接下来值得留意的变化 ${index}。`,
@@ -187,7 +187,27 @@ async function main(): Promise<void> {
     assert.equal(capturedRequest.generationConfig.candidateCount, 1);
     assert.equal(capturedRequest.generationConfig.maxOutputTokens, 16384);
     assert.equal(capturedRequest.generationConfig.responseMimeType, 'application/json');
-    assert.deepEqual(capturedRequest.generationConfig.responseJsonSchema, RECOMMENDATION_RESPONSE_SCHEMA);
+    assert.deepEqual(
+      capturedRequest.generationConfig.responseJsonSchema
+        .properties.candidates.items.properties.event_hypothesis.properties.fact_refs.items.enum,
+      ['F1', 'F2'],
+      'Gemini can only select short aliases for facts available in this request',
+    );
+    assert.equal(
+      capturedRequest.generationConfig.responseJsonSchema
+        .properties.candidates.items.properties.content_profile.properties.topic_key.enum.length,
+      30,
+      'Gemini receives the fixed taxonomy so labels remain valid',
+    );
+    assert.equal(
+      capturedRequest.generationConfig.responseJsonSchema.properties.candidates.minItems,
+      undefined,
+      '24-card cardinality stays in prompt and server validation to avoid Gemini schema rejection',
+    );
+    assert.equal(
+      capturedRequest.generationConfig.responseJsonSchema.properties.candidates.maxItems,
+      undefined,
+    );
     assert.ok(capturedRequest.systemPrompt.startsWith(RECOMMENDATION_SYSTEM_PROMPT));
     assert.ok(capturedRequest.systemPrompt.includes('open 只是弱正向兴趣'));
     assert.ok(capturedRequest.systemPrompt.includes('smoothed_open_rate'));
@@ -197,7 +217,24 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.userPrompt.includes('争吵、分手风险、新桃花'));
     assert.ok(capturedRequest.userPrompt.includes('不输出 candidate_id、position、surface、validity'));
     const promptInput = JSON.parse(capturedRequest.userPrompt.split('recommendation_input:\n')[1]);
-    assert.deepEqual(promptInput, recommendationInput(), '事实、兴趣和历史必须原样进入同一次 AI 调用');
+    const expectedInput = recommendationInput();
+    const { available_fact_refs: _expectedRefs, ...expectedWithoutRefs } = expectedInput;
+    const { available_fact_refs: providerRefs, ...promptWithoutRefs } = promptInput;
+    assert.deepEqual(promptWithoutRefs, expectedWithoutRefs, '事实、兴趣和历史必须原样进入同一次 AI 调用');
+    assert.deepEqual(providerRefs, [
+      {
+        ref: 'F1',
+        source_ref: 'natal:pillar:day',
+        valid_from: '1995-08-12',
+        valid_until: null,
+      },
+      {
+        ref: 'F2',
+        source_ref: 'time:liuyue:2026-08-07:丙戌:timing',
+        valid_from: '2026-08-07',
+        valid_until: '2026-09-06',
+      },
+    ]);
 
     assert.equal(generated.candidates.length, 24);
     assert.deepEqual(
@@ -291,7 +328,7 @@ async function main(): Promise<void> {
         event_family: 'baseline_pattern',
         claim_mode: 'description',
         summary: '原局事实支持的长期关系模式与偏好说明。',
-        fact_refs: ['natal:pillar:day'],
+        fact_refs: ['F1'],
       },
     });
     const natalPass = await generateRecommendationCandidatesWithAi(
@@ -333,7 +370,7 @@ async function main(): Promise<void> {
 
     const futureFactReference = validContent();
     futureFactReference.candidates[0].event_hypothesis.fact_refs = [
-      'time:liuyue:2026-09-07:丁亥:timing',
+      'F3',
     ];
     futureFactReference.candidates[0].primary_time_window_key = 'liuyue:2026-09-07:丁亥';
     const inputWithFutureFact: any = recommendationInput();
@@ -365,8 +402,8 @@ async function main(): Promise<void> {
 
     const noSharedTargetWindow = validContent();
     noSharedTargetWindow.candidates[0].event_hypothesis.fact_refs = [
-      'timing:past',
-      'time:liuyue:2026-09-07:丁亥:timing',
+      'F4',
+      'F3',
     ];
     noSharedTargetWindow.candidates[0].primary_time_window_key = 'liuyue:2026-09-07:丁亥';
     inputWithFutureFact.available_fact_refs.push({
