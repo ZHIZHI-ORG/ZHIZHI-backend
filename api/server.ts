@@ -42,6 +42,7 @@ import profileExtendedHandler  from './api/user/profile/extended';
 import baziCreateHandler from './api/bazi/create';
 import baziListHandler   from './api/bazi/list';
 import baziByIdHandler   from './api/bazi/[id]';
+import baziContextHandler from './api/bazi/[id]/context';
 import baziChartHandler  from './api/bazi/[id]/chart';
 import baziLuckHandler   from './api/bazi/[id]/luck';
 import baziLuckAnalysisHandler from './api/bazi/[id]/luck-analysis';
@@ -159,6 +160,8 @@ const server = http.createServer(async (req, res) => {
     if (id && id !== 'list' && id !== 'create') {
       if (child === 'chart') {
         handler = baziChartHandler;
+      } else if (child === 'context') {
+        handler = baziContextHandler;
       } else if (child === 'luck') {
         handler = baziLuckHandler;
       } else if (child === 'luck-analysis') {

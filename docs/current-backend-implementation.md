@@ -3,8 +3,8 @@
 > **Status:** CURRENT
 > **Release:** EXPERIMENTAL
 > **Verification:** WORKTREE
-> **Last verified:** 2026-08-03
-> **Sources:** `api/api/`, `api/src/`, `supabase/schema.sql`, `supabase/migrations/002..014`, `api/tests/`, `api/vercel.json`
+> **Last verified:** 2026-08-05
+> **Sources:** `api/api/`, `api/src/`, `supabase/schema.sql`, `supabase/migrations/002..015`, `api/tests/`, `api/vercel.json`
 
 ## 1. 文档职责与事实边界
 
@@ -18,7 +18,7 @@
 4. `api/tests/*.ts` 决定当前自动验证覆盖。
 5. 领域文档保留算法依据、样例和目标计划；与代码冲突时按上面四类证据重新判定状态。
 
-本轮确认的是 `dev` 的本地工作树，不是生产环境。Recommendation V1 后端已包含事实引用合同、24 张候选池、两批展示编排、批次/事件迁移、路由和 AI 结构化输出；iOS 客户端接入属于相邻仓库的独立工作树，仍按外部端到端验证处理。因此后端结果是 `WORKTREE`，不能写成已提交、已发布或线上已验证事实。
+本轮确认的是 `dev` 的本地工作树，不是生产环境。Recommendation V1 后端已包含事实引用合同、30 张候选池、三批 10 张大卡编排、批次/事件迁移、路由和 AI 结构化输出；相邻 iOS 工作树已按该合同接入并通过本地测试/模拟器构建，真实 API 端到端仍需部署后验证。因此结果是 `WORKTREE`，不能写成已提交、已发布或线上已验证事实。
 
 ## 2. 当前运行架构
 
@@ -53,13 +53,18 @@ HTTP request
 个性化问题卡 Recommendation V1
   -> 完整时间线只留服务端；AI 接收最多 16 个完整大运/流年/流月证据窗口、96 KB + 全大运轻量索引
   -> 推荐不接收流日；日级内容仍由首页日运负责
-  -> 一次 Gemini Structured Output 生成 24 张完整、未绑定展示面的候选
-  -> 首批展示 8 张大卡 + 4 张中心卡
-  -> exposure/open 进入行为记忆；open 重排候选池剩余 12 张
-  -> 第二批展示剩余 8+4，不再调用 Gemini
-  -> 24 张耗尽后，累积行为进入下一次新的 AI 调用
+  -> 一次 Gemini Structured Output 生成 30 张完整、未绑定批次的候选
+  -> 每批展示 10 张上方大卡，共 3 批；center_cards 固定为空
+  -> exposure/open 进入大卡行为记忆；open 重排候选池尚未展示的卡
+  -> 第二、第三批只消费同一候选池，不再调用 Gemini
+  -> 30 张耗尽后，累积行为进入下一次新的 AI 调用
   -> recommendation_batches single-flight、不可变 READY 候选池与展示批次
-  -> AI 不可用时保留旧 /api/insights/* 回退
+  -> AI 不可用时明确不可用，不注入 mock 或 fallback
+
+知识页下方逐项展开
+  -> 独立读取 /api/insights/analysis
+  -> 点击读取 /api/insights/detail/:category
+  -> 不消费推荐候选，不写 recommendation exposure/open
 
 StoreKit 交易
   -> commerceService
@@ -95,6 +100,7 @@ StoreKit 交易
 | `api/api/bazi/create.ts` | `POST /api/bazi/create` | Protected | 校验出生信息、真太阳时输入并计算/保存完整命盘 |
 | `api/api/bazi/list.ts` | `GET /api/bazi/list` | Protected | 按 owner、分页等条件列出当前用户档案 |
 | `api/api/bazi/[id].ts` | `GET/PUT/DELETE /api/bazi/:id` | Protected | 仅操作当前用户拥有的档案 |
+| `api/api/bazi/[id]/context.ts` | `PUT /api/bazi/:id/context` | Protected | 仅更新本人档案的现实语境与知之理解上下文，供日运和推荐 AI 作为参考而非命理事实 |
 | `api/api/bazi/[id]/chart.ts` | `GET /api/bazi/:id/chart` | Protected | 返回完整命盘计算结果 |
 | `api/api/bazi/[id]/luck.ts` | `GET /api/bazi/:id/luck` | Protected | 返回大运、流年、流月、流日时间线 |
 | `api/api/bazi/[id]/luck-analysis.ts` | `GET /api/bazi/:id/luck-analysis` | Protected | 返回运势分析结构 |
@@ -158,15 +164,15 @@ StoreKit 交易
 
 ### 4.5 个性化问题卡 Recommendation V1
 
-Recommendation V1 与旧 `/api/insights/*` 并存，由 feature flag 控制。它不新增盲派确定性规则引擎：现有 `full_chart` 时间线与 `mingliInteractionEngine` 仍是唯一的确定性事实来源。完整时间线只留在服务端；`fortune_facts` 传稳定原局，`time_windows` 传全部大运的轻量索引、当前起目标 12 个流月及其父流年/父大运完整硬事实，并在预算允许时加入最多 1 个远期流年或大运。完整证据窗口最多 16 个，整个 `time_windows` 最多 96 KB，不传全部流年或流日；超限时整窗移除远期和最远月份，至少保护当前起 6 个流月。流年按立春切换、流月按节气切换、大运按精确起运日切换，不以公历 1 月 1 日或月份编号代替。服务端只做时间覆盖、成本和事实完整性控制，不判断领域、吉凶或事件。AI 在一次结构化调用中同时看到这些硬事实、可引用事实 ID、用户现实状态、90 天/14 天/本会话打开、语义历史及所选时间窗口的曝光/打开历史，固定生成一个按优先级排列的 24 张完整候选池。AI 不决定候选属于大卡还是中心卡。
+Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派确定性规则引擎：现有 `full_chart` 时间线与 `mingliInteractionEngine` 仍是唯一的确定性事实来源。完整时间线只留在服务端；`fortune_facts` 传稳定原局，`time_windows` 传全部大运的轻量索引、当前起目标 12 个流月及其父流年/父大运完整硬事实，并在预算允许时加入最多 1 个远期流年或大运。完整证据窗口最多 16 个，整个 `time_windows` 最多 96 KB，不传全部流年或流日；超限时整窗移除远期和最远月份，至少保护当前起 6 个流月。流年按立春切换、流月按节气切换、大运按精确起运日切换，不以公历 1 月 1 日或月份编号代替。服务端只做时间覆盖、成本和事实完整性控制，不判断领域、吉凶或事件。AI 在一次结构化调用中同时看到这些硬事实、可引用事实 ID、用户现实状态、90 天/14 天/本会话打开、语义历史及所选时间窗口的曝光/打开历史，固定生成一个按优先级排列的 30 张完整候选池。AI 不决定页面展示位置。
 
 每张候选必须包含 `content_profile`（领域、主题、问题任务、时间尺度）、`selection_role`（本次为何优先出现）、`event_hypothesis`（可能现实题材、条件强度、1–6 条事实引用）、主要时间窗口、事实/事件目标窗口和完整正文。AI 可以判断“该流月的作用更适合问争执、推进、新连接还是边界”，服务端不把这层命理语义硬编码；服务端只检查 JSON 合同、枚举/张数、事实引用存在性、AI 指定的主要时间窗口确实属于其引用且与时间尺度匹配、引用时间是否相交、ID 和所有权。服务端再从引用机械派生全部 `referenced_window_keys`。关系只以无方向的 `members` 传入，删除重复五行字段和容易暗示因果的 `source/targets`；`full_match` 只代表规则成员齐全。卡可在今天展示、同时明确预测某个未来流月；页面批次的本地子初过期时间与卡的事件目标窗口分开保存。
 
-推荐大卡和中心卡的 `content_horizon` 只有原局、阶段、流年和流月，不接收流日。流日继续属于首页日运。若以后验证需要未来 30 天逐日提醒，可以在同一个 `time_windows` 合同中增加有数量上限的日级窗口，不需要重做事实层或推荐引擎。
+推荐大卡的 `content_horizon` 只有原局、阶段、流年和流月，不接收流日。流日继续属于首页日运。若以后验证需要未来 30 天逐日提醒，可以在同一个 `time_windows` 合同中增加有数量上限的日级窗口，不需要重做事实层或推荐引擎。
 
-服务端把 24 张候选分成两个不可变展示批次，每批 8 张大卡 + 4 张中心卡。首批保持 AI 的原始优先级；第二批必须且只能使用首批未展示的 12 张，并根据当前会话已经打开卡片的主题、领域、问题任务和时间尺度重排，不新增 AI 调用、不改写命理内容。第二批创建完成后顺序固定；24 张耗尽后的下一次 `/next` 才 claim 新的 AI 生成，并把刚才的 open、14 天和 90 天兴趣全部传入。
+服务端把 30 张候选分成三个不可变展示批次，每批 10 张上方大卡。首批保持 AI 的原始优先级；第二、第三批必须且只能使用同一根池尚未展示的候选，并根据当前会话已经打开卡片的主题、领域、问题任务和时间尺度重排，不新增 AI 调用、不改写命理内容。每批创建完成后顺序固定；30 张耗尽后的下一次 `/next` 才 claim 新的 AI 生成，并把此前 open、14 天和 90 天兴趣全部传入。
 
-`recommendation_batches` 的 AI 根批次保存不可变的 24 张候选池、首批 8+4 和成功调用的模型/token/字节/延迟摘要，池续批只保存实际展示的剩余 8+4 与当时的兴趣编排快照；`recommendation_events` 保存 exposure/open，并由数据库从冻结卡片反查内容标签和主要/引用时间窗口。另有一张不含 user、profile、命理或卡片内容的 `recommendation_provider_attempts` 成本账本，池续批不写这张表。`open` 是弱正向兴趣，`exposure` 是真实展示分母，划走和未打开不被当作 dislike。90/14 天内容兴趣与 90 天主要时间窗口历史由一个 RPC 在同一数据库快照中返回：前者回答“用户喜欢什么”，后者帮助远期窗口轮换；时间窗口不会混进同池第二批的内容兴趣分数。当前会话信号最多回看 12 小时，当前和近期命理窗口不会因曝光过而被删除。资料在 AI 生成中被修改时，旧 worker 不能 READY；被拦截的已 claim 行会转为 `retry_wait` 留存；同一 AI 槽位最多尝试 3 次。当前每用户滚动 24 小时的默认上限仍按 `recommendation_batches` 新建行计数，完整消费时一个 24 张池会占两个展示批次名额，因此默认 6 个批次名额等价于最多 3 个完整候选池；项目总 provider 尝试默认最多 100 次。这个用户上限是保守的产品/滥用边界，provider 成本仍只按实际 AI 调用计数。详见 [Recommendation V1 架构](designs/zhizhi-ai-personalization-question-planning-architecture.md)。
+`recommendation_batches` 的 AI 根批次保存不可变的 30 张候选池、首批 10 张和成功调用的模型/token/字节/延迟摘要，两个池续批各保存实际展示的 10 张与当时的兴趣编排快照；`recommendation_events` 保存 exposure/open，并由数据库从冻结卡片反查内容标签和主要/引用时间窗口。另有一张不含 user、profile、命理或卡片内容的 `recommendation_provider_attempts` 成本账本，池续批不写这张表。`open` 是弱正向兴趣，`exposure` 是真实展示分母，划走和未打开不被当作 dislike。90/14 天内容兴趣与 90 天主要时间窗口历史由一个 RPC 在同一数据库快照中返回；两个聚合都只读取大卡 `surface=deck`，历史中心卡事件保留审计但不再进入推荐记忆。当前会话信号最多回看 12 小时，当前和近期命理窗口不会因曝光过而被删除。资料在 AI 生成中被修改时，旧 worker 不能 READY；被拦截的已 claim 行会转为 `retry_wait` 留存；同一 AI 槽位最多尝试 3 次。当前每用户滚动 24 小时的默认上限仍按 `recommendation_batches` 新建行计数，完整消费时一个 30 张池会占三个展示批次名额，因此默认 6 个批次名额等价于最多 2 个完整候选池、60 张大卡；项目总 provider 尝试默认最多 100 次。这个用户上限是保守的产品/滥用边界，provider 成本仍只按实际 AI 调用计数。详见 [Recommendation V1 架构](designs/zhizhi-ai-personalization-question-planning-architecture.md)。
 
 本地测试可证明结构与并发合同，不能证明真实 Gemini 对命理事件题材的语义判断；上线前仍须用固定人工命理样本审读，并在 staging 读取 migration/RPC/RLS 状态。
 
@@ -193,6 +199,7 @@ Recommendation V1 与旧 `/api/insights/*` 并存，由 feature flag 控制。�
 | `supabase/migrations/012_daily_fortune_user_context.sql` | 每档案日运现实上下文与知之理解快照 | BaziProfile/dailyFortuneService |
 | `supabase/migrations/013_recommendation_engine.sql` | `recommendation_batches`、`recommendation_events`、无内容的 provider-attempt ledger、single-flight/complete/release/event/preference-snapshot RPC、revision/时区槽位、RLS 与不可变 READY 约束 | RecommendationRepository/recommendation service/iOS Insights V1 |
 | `supabase/migrations/014_recommendation_candidate_pool.sql` | 兼容旧 6+3 READY，新增 24 张不可变候选池、8+4 展示合同、池续批、成功调用 metrics、卡片时间窗口事件派生及 90 天窗口记忆 RPC | RecommendationRepository/recommendation service/iOS Insights V1 |
+| `supabase/migrations/015_recommendation_deck_only_pool.sql` | 保留旧 6+3/8+4 可审计数据，新增 30 张根池、10+0 三批父子链、V3 finalize/续批 RPC，并从两类推荐记忆中排除历史 center 事件 | RecommendationRepository/recommendation service/iOS Insights V1 |
 
 源码不能判断远端迁移是否完成。部署验收必须读取目标项目的 migration/table/function 状态，并对 RLS 与 service-role 行为分别验证。
 
@@ -210,8 +217,8 @@ Recommendation V1 与旧 `/api/insights/*` 并存，由 feature flag 控制。�
 | `DAILY_FORTUNE_AI_MODEL` | Daily fortune V2 generation | 未配置时 V2 生成失败且不产出内容 |
 | `DAILY_FORTUNE_AI_TIMEOUT_MS` | Optional | V2 AI 请求默认 15000ms |
 | `DAILY_FORTUNE_MAX_ACTIVE_GENERATIONS` | Optional | V2 数据库生成并发上限默认 20 |
-| `RECOMMENDATIONS_V1_ENABLED` | Optional | 只有字符串 `true` 开启新的推荐批次生成；关闭时客户端应使用旧 insights 回退 |
-| `RECOMMENDATION_AI_MODEL` | Recommendation V1 generation | 未配置时可回退读取 `DAILY_FORTUNE_AI_MODEL`；两者都无时新批次直接不可用并回退旧 insights |
+| `RECOMMENDATIONS_V1_ENABLED` | Optional | 只有字符串 `true` 开启新的推荐批次生成；关闭时上方推荐明确不可用，不注入 mock/fallback |
+| `RECOMMENDATION_AI_MODEL` | Recommendation V1 generation | 未配置时可读取 `DAILY_FORTUNE_AI_MODEL`；两者都无时新批次直接不可用，不生成替代内容 |
 | `RECOMMENDATION_AI_TIMEOUT_MS` | Optional | 未配置时可回退 `DAILY_FORTUNE_AI_TIMEOUT_MS`，默认 90000ms，范围 1–100000ms，预留落库时间 |
 | `RECOMMENDATION_MAX_ACTIVE_GENERATIONS` | Optional | Recommendation 数据库生成并发上限；未配置使用服务端默认值 |
 | `RECOMMENDATION_MAX_NEW_BATCHES_PER_24H` | Optional | 每用户滚动 24 小时新建批次上限，默认 6，范围 1–50；不限制同一批的 join/retry |
@@ -232,12 +239,12 @@ Recommendation V1 与旧 `/api/insights/*` 并存，由 feature flag 控制。�
 | Dependency | Verification | Checked on | Evidence | Current conclusion | Required next action |
 |---|---|---|---|---|---|
 | Vercel production deployment | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 只确认 `api/vercel.json` 和 deploy script 存在 | 记录 deployment URL、commit、health 响应和日志 |
-| Supabase schema/migrations/RLS | EXTERNAL_UNVERIFIED | 2026-08-03 | Not probed in this implementation pass | 只确认本地 SQL 002-014，Recommendation RPC/RLS 尚未 readback | 在 staging 依序执行 013、014 并读取 table/function/RLS 状态 |
+| Supabase schema/migrations/RLS | EXTERNAL_UNVERIFIED | 2026-08-05 | Not probed in this implementation pass | 只确认本地 SQL 002-015，Recommendation RPC/RLS 尚未 readback | 在 staging 依序执行 013、014、015 并读取 table/function/RLS 状态 |
 | Supabase Auth email/Apple/Google providers | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 后端调用路径存在，Provider 状态未知 | 分别用有效/无效 token 验证登录合同 |
 | Gemini generation | EXTERNAL_UNVERIFIED | 2026-07-23 | V2 transport/Prompt/schema unit tests only | V2 没有 fallback；真实模型尚未调用 | 在 staging 配置固定模型，验证内容质量和失败路径 |
-| Recommendation V1 Gemini / behavioral loop | EXTERNAL_UNVERIFIED | 2026-08-03 | 本地 16-window/96-KB 检索、24 张 Structured Output、8+4/8+4 编排、机械事实/时间窗口引用和离线 100 例结构评测 | 未调用真实模型；未证明 24 张输出的延迟/截断、命理事件题材质量或 exposure/open 线上闭环 | 固定模型与匿名测试档案跑两轮展示及下一候选池；人工审读样本、输入预算、token、延迟和下一次 AI 输入 |
+| Recommendation V1 Gemini / behavioral loop | EXTERNAL_UNVERIFIED | 2026-08-05 | 本地 16-window/96-KB 检索、30 张 Structured Output、10+10+10 编排、机械事实/时间窗口引用和离线结构评测 | 未调用真实模型；未证明 30 张输出的延迟/截断、命理事件题材质量或 exposure/open 线上闭环 | 固定模型与匿名测试档案跑三批展示及下一候选池；人工审读样本、输入预算、token、延迟和下一次 AI 输入 |
 | Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 代码允许严格验签或未验签解码 | 生产强制验签并执行沙盒/生产交易回放 |
-| iOS end-to-end flows | EXTERNAL_UNVERIFIED | 2026-08-03 | Recommendation V1 Simulator build 与 focused DTO/event identity tests passed; no live API run | V1 卡片 DTO、事件身份、轮询/预取与旧 insights 回退可编译，未证明线上可用 | 部署 staging 后用真实账号、三柱和四柱档案验收 |
+| iOS end-to-end flows | EXTERNAL_UNVERIFIED | 2026-08-05 | 10+0 合同、剩 5 张预取边界和逐项展开隔离测试通过；Simulator build passed; no live API run | 上方推荐与下方真实 analysis/detail 链路已在源码解耦，未证明线上可用 | 部署 staging 后用真实账号、三柱和四柱档案验收三批大卡与独立逐项展开 |
 
 ## 8. 验证方案
 
@@ -255,8 +262,8 @@ npm run test:docs
 验收分三层：
 
 1. **仓库合同：** type-check、Recommendation AI/service/route/migration/eval 测试和全部当前测试通过；文档列出每个路由和迁移。
-2. **部署合同：** 目标 commit 部署成功，health 返回数据库 connected，013/014 的 table/function/RLS 已 readback，推荐 feature flag 与固定模型核对完成。
-3. **产品合同：** iOS 使用真实账号和三柱/四柱档案跑通首批 8+4、open 后同池续批 8+4、池耗尽后的新 AI、详情、exposure/open、预取和旧 insights 回退；固定人工命理样本审读实际题目。示例回退不能计为 AI 联通。
+2. **部署合同：** 目标 commit 部署成功，health 返回数据库 connected，013/014/015 的 table/function/RLS 已 readback，推荐 feature flag 与固定模型核对完成。
+3. **产品合同：** iOS 使用真实账号和三柱/四柱档案跑通 10+10+10、open 后同池续批重排、30 张耗尽后的新 AI、大卡详情、exposure/open 和剩 5 张预取；逐项展开单独跑通 analysis/detail 且不产生推荐事件；固定人工命理样本审读实际题目。任何示例或 fallback 不能计为 AI 联通。
 
 ## 9. 实施计划
 
@@ -264,7 +271,7 @@ npm run test:docs
 
 - **改动：** 建立文档地图和当前实现指南；旧文档标注权威级别；加入清单、链接、路由、迁移和状态检查。
 - **代码落点：** `docs/README.md`、本文、旧 Markdown 顶部状态、`api/scripts/verify-docs.js`、`api/tests/docsIntegrity.test.ts`、CI workflow。
-- **验收：** 两份新仓库文档上限；39 个路由文件与 9 个迁移全部覆盖；无本机绝对链接；用户已有三处代码改动哈希不变。
+- **验收：** 两份新仓库文档上限；当前 45 个路由文件与 14 个迁移全部覆盖；无本机绝对链接；用户已有改动不被文档工作覆盖。
 
 ### Phase 1 — 独立线上就绪审计
 
@@ -282,7 +289,7 @@ npm run test:docs
 
 ### Phase 3 — Recommendation V1 工作树实现与外部验收
 
-Recommendation V1 已在本地工作树按“完整事实时间线 → 服务端截取最多 16 个/96 KB 证据窗口 → AI 一次生成 24 张候选 → 首批 8+4 → open 重排同池剩余 8+4 → 池耗尽后内容兴趣与时间窗口记忆进入下一次 AI”的最小闭环实现。完整合同见 [Recommendation V1 架构](designs/zhizhi-ai-personalization-question-planning-architecture.md)。它仍是 `EXPERIMENTAL / WORKTREE`：提交、迁移、真实 Gemini、iOS、人工命理质量审读和线上指标未验证前，不能从本节推断已经上线。
+Recommendation V1 已在本地工作树按“完整事实时间线 → 服务端截取最多 16 个/96 KB 证据窗口 → AI 一次生成 30 张候选 → 10+10+10 三批上方大卡 → open 重排同池尚未冻结的候选 → 池耗尽后内容兴趣与时间窗口记忆进入下一次 AI”的最小闭环实现。下方逐项展开继续使用独立 analysis/detail 链路，不消费候选也不写推荐事件。完整合同见 [Recommendation V1 架构](designs/zhizhi-ai-personalization-question-planning-architecture.md)。它仍是 `EXPERIMENTAL / WORKTREE`：提交、迁移、真实 Gemini、真实账号端到端、人工命理质量审读和线上指标未验证前，不能从本节推断已经上线。
 
 后续扩展必须复用现有 `RecommendationCandidate` / `CardCandidate`、事实引用、候选池、batch 和事件日志。不要在 V1 外另建向量记忆、第二套候选引擎或未验证的负反馈模型。
 
@@ -300,7 +307,7 @@ Recommendation V1 已在本地工作树按“完整事实时间线 → 服务端
 - `time_windows` 的 16 个证据/96 KB 是硬成本边界；关系密集命盘可能从最远月份开始缩减到最少 6 个近期月，必须用真实档案统计触发率与覆盖损失。
 - 远期窗口只有实际成为展示卡的主要窗口后才计 exposure；AI 若连续不使用该窗口，它可能在后续检索重复出现，MVP 暂不新增 retrieval ledger。
 - 成功调用会保存 token/字节/延迟摘要，失败尝试目前只保留无内容 attempt 记录；真实失败调用的精确 token 与延迟仍需后续 telemetry 扩展。
-- 24 张完整卡已把本地输出上限提高到 16384 tokens / 128 KB；真实固定 Gemini 模型的输出上限和平均延迟尚未验证。当前 iOS 单请求约 30 秒超时，收到 `generating` 后的轮询窗口约 12 秒，必须用真实模型验证 P95 或同步调整客户端等待合同。
-- 当前用户 24 小时上限按展示批次行计数；默认 6 个名额可完整消费 3 个候选池。若产品要把它解释为“每天 6 次 AI 生成”，需要在后续迁移中把配额改为只统计 `generation_kind=ai`。
-- iOS 在大卡剩 2 张时冻结预取结果；预取后才发生的 open 只能进入下一次尚未开始的 AI 生成，不能承诺每次打开都改变紧邻展示批次。
+- 30 张完整卡沿用 16384 tokens / 128 KB 输出上限；真实固定 Gemini 模型的输出上限和平均延迟尚未验证。相较旧 24 张合同，输出量预计约增加 25%；必须用真实模型验证 finish reason、字节、token、P95 和客户端等待合同。
+- 当前用户 24 小时上限按展示批次行计数；默认 6 个名额可完整消费 2 个候选池、60 张大卡。若产品要把它解释为“每天 6 次 AI 生成”，需要在后续迁移中把配额改为只统计 `generation_kind=ai`。
+- iOS 在大卡剩 5 张时冻结预取结果；第 6 张触发前已 flush 的行为可影响紧邻批次，第 7–10 张后来发生的 open 只能影响再下一批尚未开始的编排或 AI 生成，不能承诺每次打开都改变紧邻展示批次。
 - iOS 当前未持久化推荐 `after_batch_id`；App 重启或页面重建会重新读取当天首批。跨会话续看仍需客户端游标或新的后端游标合同。

@@ -139,6 +139,7 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
     ],
     available_fact_refs: facts,
     reality_context: {
+      personality: { mbti: null, jungian_function_order: [] },
       life_stage: { primary: null, tags: [] },
       work_study: {
         mode: null,
@@ -149,8 +150,18 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
         school: null,
         current_goal: null,
       },
-      relationship: { status: item.relationshipStatus, current_focus: null },
-      saved_understanding: { current_focus: [], expression_preferences: [] },
+      relationship: {
+        status: item.relationshipStatus,
+        declared_status: null,
+        current_focus: null,
+      },
+      saved_understanding: {
+        snapshot_version: null,
+        current_focus: [],
+        expression_preferences: [],
+        behavior_signals: [],
+        updated_at: null,
+      },
     },
     preference_context: preferenceContext(item),
     content_history: [{
@@ -208,7 +219,7 @@ function primaryWindowKey(item: EvalCase): string {
 
 function validOutput(item: EvalCase, factRefs = [factAlias(item)]) {
   return {
-    candidates: Array.from({ length: 24 }, (_, index) => rawCard(item, index, factRefs)),
+    candidates: Array.from({ length: 30 }, (_, index) => rawCard(item, index, factRefs)),
   };
 }
 
@@ -236,7 +247,7 @@ async function evaluateCase(item: EvalCase): Promise<void> {
     () => `eval-${item.id}-${sequence++}`,
   );
 
-  assert.equal(generated.candidates.length, 24, item.id);
+  assert.equal(generated.candidates.length, 30, item.id);
   assert.equal(captured.generationConfig.responseMimeType, 'application/json', item.id);
   assert.equal(captured.generationConfig.candidateCount, 1, item.id);
 
@@ -250,7 +261,7 @@ async function evaluateCase(item: EvalCase): Promise<void> {
   )), true, item.id);
 
   const ids = new Set(generated.candidates.map((card) => card.candidate_id));
-  assert.equal(ids.size, 24, `${item.id}: IDs must be unique`);
+  assert.equal(ids.size, 30, `${item.id}: IDs must be unique`);
   generated.candidates.forEach((card, index) => {
     assert.equal(card.pool_position, index, item.id);
     assert.equal((card as any).surface, undefined, item.id);

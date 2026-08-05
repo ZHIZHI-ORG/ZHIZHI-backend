@@ -307,6 +307,22 @@ export async function updateBaziProfile(
   });
 }
 
+/**
+ * Updates only the user's reality context. This must not recalculate or mutate
+ * deterministic chart facts.
+ */
+export async function updateBaziProfileContext(
+  userId: string,
+  profileId: string,
+  value: unknown,
+): Promise<BaziProfile> {
+  await getBaziProfileById(userId, profileId);
+  const dailyFortuneContext = parseDailyFortuneProfileContextInput(value);
+  return baziProfileRepository.update(profileId, {
+    daily_fortune_context: dailyFortuneContext,
+  });
+}
+
 function mergeBaziUpdateInput(
   existing: BaziProfile,
   input: UpdateBaziProfileInput,

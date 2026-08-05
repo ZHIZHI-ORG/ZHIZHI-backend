@@ -92,9 +92,9 @@ function sendServiceResult(
     return sendError(res, requestId, {
       statusCode: 503,
       code: 'RECOMMENDATIONS_UNAVAILABLE',
-      message: '推荐卡片暂时不可用，可先继续浏览原有知识内容',
+      message: '推荐卡片暂时不可用，请稍后重试',
       cause: typeof result.cause === 'string' ? result.cause : 'GENERATION_FAILED',
-      nextAction: 'FALLBACK_TO_INSIGHTS',
+      nextAction: 'SHOW_UNAVAILABLE',
       retryable: typeof result.retryable === 'boolean'
         ? result.retryable
         : result.cause !== 'GENERATION_DISABLED',

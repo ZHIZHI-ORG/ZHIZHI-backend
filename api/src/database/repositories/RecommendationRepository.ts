@@ -109,7 +109,8 @@ export interface FinalizeRecommendationBatchInput {
 
 export interface CreateRecommendationPoolContinuationInput {
   userId: string;
-  sourceBatchId: string;
+  parentBatchId: string;
+  rootBatchId: string;
   cards: RecommendationBatchCards;
   selectionContext: RecommendationSelectionContext;
 }
@@ -380,7 +381,7 @@ export class RecommendationRepository {
   }
 
   async finalize(input: FinalizeRecommendationBatchInput): Promise<boolean> {
-    const { data, error } = await supabase.rpc('finalize_recommendation_batch', {
+    const { data, error } = await supabase.rpc('finalize_recommendation_batch_v3', {
       p_batch_id: input.batchId,
       p_user_id: input.userId,
       p_lease_token: input.leaseToken,
@@ -406,9 +407,10 @@ export class RecommendationRepository {
   async createPoolContinuation(
     input: CreateRecommendationPoolContinuationInput,
   ): Promise<string> {
-    const { data, error } = await supabase.rpc('create_recommendation_pool_continuation', {
+    const { data, error } = await supabase.rpc('create_recommendation_pool_continuation_v3', {
       p_user_id: input.userId,
-      p_source_batch_id: input.sourceBatchId,
+      p_parent_batch_id: input.parentBatchId,
+      p_root_batch_id: input.rootBatchId,
       p_cards_json: input.cards,
       p_selection_context_json: input.selectionContext,
     });

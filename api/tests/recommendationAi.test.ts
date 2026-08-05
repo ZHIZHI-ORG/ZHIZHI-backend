@@ -47,6 +47,10 @@ function recommendationInput() {
       },
     ],
     reality_context: {
+      personality: {
+        mbti: 'INTJ',
+        jungian_function_order: ['Ni', 'Te', 'Fi', 'Se', 'Ne', 'Ti', 'Fe', 'Si'],
+      },
       life_stage: { primary: null, tags: [] },
       work_study: {
         mode: null,
@@ -57,8 +61,14 @@ function recommendationInput() {
         school: null,
         current_goal: null,
       },
-      relationship: { status: 'unknown', current_focus: null },
-      saved_understanding: { current_focus: [], expression_preferences: [] },
+      relationship: { status: 'unknown', declared_status: null, current_focus: null },
+      saved_understanding: {
+        snapshot_version: null,
+        current_focus: [],
+        expression_preferences: [],
+        behavior_signals: [],
+        updated_at: null,
+      },
     },
     preference_context: {
       recent_14d: [{
@@ -122,7 +132,7 @@ function rawCard(index: number, overrides: Record<string, unknown> = {}) {
 
 function validContent() {
   return {
-    candidates: Array.from({ length: 24 }, (_, index) => rawCard(index)),
+    candidates: Array.from({ length: 30 }, (_, index) => rawCard(index)),
   };
 }
 
@@ -167,7 +177,7 @@ async function main(): Promise<void> {
   try {
     let calls = 0;
     let capturedRequest: any;
-    const ids = Array.from({ length: 24 }, (_, index) => `candidate-${index + 1}`);
+    const ids = Array.from({ length: 30 }, (_, index) => `candidate-${index + 1}`);
     const generated = await generateRecommendationCandidatesWithAi(
       recommendationInput(),
       {
@@ -202,7 +212,7 @@ async function main(): Promise<void> {
     assert.equal(
       capturedRequest.generationConfig.responseJsonSchema.properties.candidates.minItems,
       undefined,
-      '24-card cardinality stays in prompt and server validation to avoid Gemini schema rejection',
+      '30-card cardinality stays in prompt and server validation to avoid Gemini schema rejection',
     );
     assert.equal(
       capturedRequest.generationConfig.responseJsonSchema.properties.candidates.maxItems,
@@ -212,7 +222,11 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.systemPrompt.includes('open 只是弱正向兴趣'));
     assert.ok(capturedRequest.systemPrompt.includes('smoothed_open_rate'));
     assert.ok(capturedRequest.systemPrompt.includes('reality_context.relationship.status 为 unknown'));
+    assert.ok(capturedRequest.systemPrompt.includes('荣格八维功能顺序'));
+    assert.ok(capturedRequest.systemPrompt.includes('不是人格诊断或固定模板'));
+    assert.ok(capturedRequest.systemPrompt.includes('以真实行为和明确资料为准'));
     assert.ok(capturedRequest.userPrompt.startsWith(RECOMMENDATION_DEVELOPER_PROMPT));
+    assert.ok(capturedRequest.userPrompt.includes('30 张完整的上方推荐大卡候选'));
     assert.ok(capturedRequest.systemPrompt.includes('命理事实决定哪些题材有资格出现'));
     assert.ok(capturedRequest.userPrompt.includes('争吵、分手风险、新桃花'));
     assert.ok(capturedRequest.userPrompt.includes('不输出 candidate_id、position、surface、validity'));
@@ -236,14 +250,14 @@ async function main(): Promise<void> {
       },
     ]);
 
-    assert.equal(generated.candidates.length, 24);
+    assert.equal(generated.candidates.length, 30);
     assert.deepEqual(
       generated.candidates.map((card: any) => card.candidate_id),
-      Array.from({ length: 24 }, (_, index) => `candidate-${index + 1}`),
+      Array.from({ length: 30 }, (_, index) => `candidate-${index + 1}`),
     );
     assert.deepEqual(
       generated.candidates.map((card: any) => card.pool_position),
-      Array.from({ length: 24 }, (_, index) => index),
+      Array.from({ length: 30 }, (_, index) => index),
     );
     assert.ok(generated.candidates.every((card: any) => card.surface === undefined));
     assert.ok(generated.candidates.every((card: any) => card.position === undefined));
@@ -274,7 +288,7 @@ async function main(): Promise<void> {
     mechanicalOnly.candidates[0] = rawCard(0, {
       body: '你们一定会分手，这段文字故意测试服务端不会用关键词判断命理语义，而只保存结构正确且引用存在的模型输出。',
     });
-    const idsForSemanticPass = Array.from({ length: 24 }, (_, index) => `semantic-${index}`);
+    const idsForSemanticPass = Array.from({ length: 30 }, (_, index) => `semantic-${index}`);
     const semanticPass = await generateRecommendationCandidatesWithAi(
       recommendationInput(),
       { async generate() { return providerResponse(mechanicalOnly); } },
@@ -349,7 +363,7 @@ async function main(): Promise<void> {
     );
 
     const tooFewCandidates = validContent();
-    tooFewCandidates.candidates = tooFewCandidates.candidates.slice(0, 23);
+    tooFewCandidates.candidates = tooFewCandidates.candidates.slice(0, 29);
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),
@@ -359,7 +373,7 @@ async function main(): Promise<void> {
     );
 
     const tooManyCandidates = validContent();
-    tooManyCandidates.candidates.push(rawCard(24));
+    tooManyCandidates.candidates.push(rawCard(30));
     await expectAiError(
       generateRecommendationCandidatesWithAi(
         recommendationInput(),

@@ -3,8 +3,8 @@
 > **Status:** CURRENT
 > **Release:** EXPERIMENTAL
 > **Verification:** WORKTREE
-> **Last verified:** 2026-08-03
-> **Sources:** `DailyFortuneFactPackage`、`mingliInteractionEngine`、`Recommendation.ts`、`recommendationTimeWindows.ts`、`recommendationAi.ts`、`recommendation_batches` / `recommendation_events` / `recommendation_provider_attempts`、迁移 `013` / `014` 与推荐路由。迁移、真实 Gemini、iOS 与线上链路须分别验证，不能由本地代码推断。
+> **Last verified:** 2026-08-05
+> **Sources:** `DailyFortuneFactPackage`、`mingliInteractionEngine`、`Recommendation.ts`、`recommendationTimeWindows.ts`、`recommendationAi.ts`、`recommendation_batches` / `recommendation_events` / `recommendation_provider_attempts`、迁移 `013` / `014` / `015`、推荐路由与 iOS 推荐客户端。迁移、真实 Gemini 与线上链路须分别验证，不能由本地代码推断。
 
 ## 1. 一句话结论
 
@@ -15,9 +15,9 @@
   -> 服务端只截取适合一次 AI 判断的通用时间窗口，不判断哪件事会发生
   -> 哪些问题有资格被问
   -> AI 在这些事实里判断最值得问的具体问题
-  -> AI 一次生成 24 张完整候选，服务端先展示其中 12 张
-  -> 用户打开什么，立即影响剩余 12 张的顺序和展示面
-  -> 24 张耗尽后，累积行为再进入下一次 AI 生成
+  -> AI 一次生成 30 张完整候选，服务端每批只展示 10 张上方大卡
+  -> 用户打开什么，影响同一候选池中下一批尚未冻结的 10 张顺序
+  -> 10 + 10 + 10 共三批耗尽后，累积行为再进入下一次 AI 生成
 ```
 
 这能同时满足两个产品结果：
@@ -42,12 +42,13 @@
      “下个月感情里，哪些沟通点容易累积成争执？”
      “如果目前单身，丙戌月更可能在哪种关系场景遇到新连接？”
      “这段关系接下来更适合推进，还是先把边界讲清楚？”
-  -> AI 一次输出 24 张完整候选，每张都标注它引用了哪些事实、何时失效
-  -> 服务端先返回 8 张大卡 + 4 张中心卡
+  -> AI 一次输出 30 张完整候选，每张都标注它引用了哪些事实、何时失效
+  -> 服务端先返回 10 张上方大卡
   -> 用户打开“争执”相关卡
-  -> 服务端在不改写题目、不增加 AI 调用的前提下，把剩余 12 张中更接近
-     感情预测、沟通、关系推进的卡排得更靠前，再返回 8 张大卡 + 4 张中心卡
-  -> 24 张全部展示后，下一次 AI 生成同时看到本轮打开和此前长期兴趣
+  -> 服务端在不改写题目、不增加 AI 调用的前提下，把剩余 20 张中更接近
+     感情预测、沟通、关系推进的卡排得更靠前，再返回下一组 10 张大卡
+  -> 第三批继续从尚未展示的 10 张中编排；30 张全部展示后，下一次 AI
+     生成同时看到本轮打开和此前长期兴趣
 ```
 
 这里的“争执风险”“新桃花”“分手风险”是**事件假设**：有命理事实支持的可能题材，不是对用户生活已经发生或必然发生的断言。这个表达强度由 AI 的提示词和人工命理样本评测约束；服务端不会用关键词二次判定“这句话能不能说”。
@@ -99,9 +100,9 @@ time:liuyue:2026-10-08:interaction:{interaction_id}
 
 命理解释的语义全部在 AI 端。推荐专用事实投影只传 `relation`、无方向的 `members`、`scope`、`time_horizon`、`full_match` 等可复算硬事实；不传重复的五行映射，也不传 `source`、`targets`、`fact_label`、`activated_palaces`、`domain_candidates`、`intensity` 或 `evidence`。`members` 只表示共同构成关系的对象，数组顺序不代表谁作用谁；`full_match` 只表示规则成员齐全，不代表更强或更可能发生。AI 自行判断领域、宫位含义、相对重要性、跨时间背景和事件假设。服务端只确认被引用的 ID 存在且时间窗口没有冲突。
 
-## 5. 候选卡与展示卡分开，24 张才真正可重排
+## 5. 候选卡与展示卡分开，30 张分三批才能持续学习
 
-`RecommendationCandidate` 是 AI 生成的完整问题候选。它还没有被分到大卡或中心卡，因此用户打开后，剩余候选仍可重新排序和分配展示面。`CardCandidate` 是候选被选入某一展示批次后的只读投影，也是推荐与长期记忆之间的稳定桥梁。
+`RecommendationCandidate` 是 AI 生成的完整问题候选。它还没有被放进任何展示批次，因此用户打开后，尚未冻结的候选仍可重新排序。`CardCandidate` 是候选被选入某一大卡批次后的只读投影，也是推荐与长期记忆之间的稳定桥梁。
 
 ```text
 RecommendationCandidate
@@ -120,13 +121,13 @@ RecommendationCandidate
                      用户看到的问题、摘要和同一份详情正文
 
 CardCandidate（进入展示批次后增加）
-  surface            deck（大卡）或 center（中心卡）
-  position           所在展示面内的位置
+  surface            V3 固定为 deck（上方大卡）
+  position           所在批次内的位置
 ```
 
-一次 AI 调用固定生成一个不可变的 24 张候选池，不让 AI 直接输出 `deck_cards` 或 `center_cards`。服务端把它分成两个客户端兼容的展示批次，每批固定为 8 张大卡 + 4 张中心卡：首批保持 AI 的候选优先顺序；次批必须且只能消费首批未展示的 12 张，并使用首批打开行为重排。两类卡不是两套内容系统，都复用同一套事实引用、有效期、正文、行为事件和记忆闭环；差别只在展示位置与阅读方式。
+一次 AI 调用固定生成一个不可变的 30 张候选池，不让 AI 决定页面位置。服务端把它分成三个展示批次，每批固定 10 张上方大卡：首批保持 AI 的候选优先顺序；第二、第三批只能消费同一根候选池尚未展示的卡，并使用批次创建前已经写入的打开行为重排。三批的候选 ID 并集必须恰好等于原始 30 张，不能重复、遗漏或临时补卡。
 
-`24` 是一次 AI 生成量，`8+4` 是一次 API 展示量，二者不能再混为一个合同。当前 iOS 每次接受 6–10 张大卡和 3–5 张中心卡，因此 8+4 不需要修改客户端，并能用两批恰好展示完 24 张。
+`30` 是一次 AI 生成量，`10` 是一次 API 展示量，二者不能混为一个合同。响应暂时保留 `center_cards: []` 只是为了兼容既有 JSON 结构，不代表推荐系统仍然生成中心卡。下方“逐项展开”完全独立，继续读取 `/api/insights/analysis`，点击后读取 `/api/insights/detail/:category`；它不消费这 30 张候选，也不写推荐 exposure/open。
 
 ## 6. 用四个独立维度学习兴趣，不把偏好做成一团标签
 
@@ -166,7 +167,7 @@ love / relationship_progress / forecast / month
 
 ## 7. 推荐逻辑：事实优先，AI 在事实范围内编排
 
-AI 每次收到以下上下文，并在一次 Structured Output 调用中直接产出一个按优先级排列的 24 张完整候选池：
+AI 每次收到以下上下文，并在一次 Structured Output 调用中直接产出一个按优先级排列的 30 张完整候选池：
 
 ```text
 recommendation_input
@@ -202,7 +203,7 @@ AI 的编排顺序固定为：
 
 `selection_role` 记录“为什么这次推它”，它不是 UI 类型，也不是命理结论。
 
-服务端不再做一次命理判断。它只执行两个可回放的展示动作：首批按 AI 的 `pool_position` 取前 12 张；展示面分配优先把更适合解释、描述、比较和长期理解的卡放入中心卡，其余进入大卡。次批包含全部剩余 12 张，先保持 `p1_mingli_change > p2_interest_match > p2_baseline > p3_diversity` 的命理优先层级，再在同一层内按当前会话打开的 `topic_key > domain > question_job > content_horizon` 依次加权重排，最后执行同样的展示面分配。这个轻量规则只改变顺序和位置，不增加、删除或改写 AI 已生成的命理内容，兴趣也不能把 P3 内容压到 P1 变化之前。
+服务端不再做一次命理判断。它只执行可回放的展示编排：首批按 AI 的 `pool_position` 取前 10 张；第二、第三批先排除已展示候选，再保持 `p1_mingli_change > p2_interest_match > p2_baseline > p3_diversity` 的命理优先层级，并在同一层内按当前会话打开的 `topic_key > domain > question_job > content_horizon` 依次加权重排，取下一组 10 张。这个轻量规则只改变顺序，不增加、删除或改写 AI 已生成的命理内容，兴趣也不能把 P3 内容压到 P1 变化之前。
 
 ### 7.1 兴趣强度的轻量计算
 
@@ -215,9 +216,9 @@ smoothed_open_rate = (1 + 加权打开数) / (4 + max(加权曝光数, 加权打
 
 这让一次打开只是一点弱信号，反复打开才会形成偏好；曝光但没打开只是“给过机会”，不是负反馈。当前 MVP 没有收藏与“不感兴趣”按钮，未来增加时只要新增事件类型和权重，不需要改卡片合同或重建数据库。
 
-14 天、90 天的兴趣扫描和四个内容维度聚合在 PostgreSQL 内完成，再把每个兴趣窗口最多 40 条信号、当前会话最近 20 次打开、最近 60 个语义历史交给 AI。内容兴趣与时间窗口记忆由一个 RPC 在同一数据库快照中返回，避免 open 恰好写入时出现两个记忆版本。当前会话另有 12 小时服务端上限，防止客户端重复使用旧 `session_id`。时间窗口记忆单独按 `primary_time_window_key` 聚合最近 90 天的 exposure/open，最多保留 100 个窗口；它解决“哪个时间段已经作为主题讲过”，不混进“用户喜欢什么内容”，也不参与同一候选池第二批的兴趣加分。未来问题只可引用 `time_windows` 内、带明确前缀的真实事实；服务端检查引用存在、主时间窗口属于实际引用窗口且时间尺度匹配，并检查引用时间相交。
+14 天、90 天的兴趣扫描和四个内容维度聚合在 PostgreSQL 内完成，再把每个兴趣窗口最多 40 条信号、当前会话最近 20 次打开、最近 60 个语义历史交给 AI。内容兴趣与时间窗口记忆由一个 RPC 在同一数据库快照中返回，避免 open 恰好写入时出现两个记忆版本。当前会话另有 12 小时服务端上限，防止客户端重复使用旧 `session_id`。时间窗口记忆单独按 `primary_time_window_key` 聚合最近 90 天的 exposure/open，最多保留 100 个窗口；它解决“哪个时间段已经作为卡片主题讲过”，不混进“用户喜欢什么内容”。两个记忆聚合都只读取 `surface=deck` 的历史事件，旧中心卡数据继续保留审计但不会污染大卡兴趣。未来问题只可引用 `time_windows` 内、带明确前缀的真实事实；服务端检查引用存在、主时间窗口属于实际引用窗口且时间尺度匹配，并检查引用时间相交。
 
-推荐大卡和中心卡不接收流日，也不生成 `day` 时间尺度的问题。日级内容继续由首页日运承担，避免知识页被一天即失效的题目淹没。未来若产品验证需要“未来 30 天逐日提醒”，只需在 `time_windows` 增加可选日级窗口和独立数量上限，不需要新增第二套命理事实或推荐架构。
+推荐大卡不接收流日，也不生成 `day` 时间尺度的问题。日级内容继续由首页日运承担，避免知识页被一天即失效的题目淹没。未来若产品验证需要“未来 30 天逐日提醒”，只需在 `time_windows` 增加可选日级窗口和独立数量上限，不需要新增第二套命理事实或推荐架构。
 
 ### 7.2 当前会话如何影响下一批
 
@@ -225,14 +226,14 @@ smoothed_open_rate = (1 + 加权打开数) / (4 + max(加权曝光数, 加权打
 用户打开卡 A
   -> 客户端上报 open（只含 batch/card/event ID）
   -> 数据库从已保存的卡片反查真实标签
-  -> 用户请求首批之后的下一批
+  -> 用户浏览到当前 10 张只剩 5 张，客户端先写完已产生的事件并预取下一批
   -> 服务端读取 current_session_opens
-  -> 只重排同一 24 张池里尚未展示的 12 张，不调用 AI
-  -> 第二展示批次返回后，24 张候选池耗尽
-  -> 再请求下一批时才调用 AI；新 AI 输入包含刚才的 open、14 天/90 天兴趣、语义历史和时间窗口历史
+  -> 只重排同一 30 张池里尚未展示的候选并取 10 张，不调用 AI
+  -> 第三展示批次返回后，30 张候选池耗尽
+  -> 第三批之后再请求才调用 AI；新 AI 输入包含此前 open、14 天/90 天兴趣、语义历史和时间窗口历史
 ```
 
-已经返回或正在生成的展示批次不取消、不重写。第一次展示后、第二次 `/next` 开始前收到的 open 会影响第二批排序；第二批已经创建后收到的 open 会进入下一次 24 张 AI 生成。这样用户正在看的内容不会闪变，并发重试也不会生成不同的排序。
+已经返回或正在生成的展示批次不取消、不重写。某次 `/next` 开始前写入的 open 能影响该次编排；批次已经创建后收到的 open 进入下一批尚未开始的编排，候选池耗尽后则进入下一次 30 张 AI 生成。按“剩 5 张预取”的产品选择，10 张中的第 6 张开始显示时会先 flush 已产生事件再请求下一批；第 7–10 张后来发生的行为仍被记录，但不能改写已经冻结的紧邻批次。这样换取连续浏览体验，同时保持 READY 批次可回放和并发幂等。
 
 ## 8. 行为、记忆和安全边界
 
@@ -251,15 +252,15 @@ V1 只有两类行为：
 
 | 表 | 保存什么 | 为什么需要 |
 |---|---|---|
-| `recommendation_batches` | AI 根批次保存输入快照、不可变 24 张候选池、首批 8+4 和成功调用的模型/token/字节/延迟摘要；池续批只保存剩余 8+4 及其编排兴趣快照 | 能回放“AI 当时生成了什么、用户实际看到了什么、为何这样排序”，并量化成功调用成本 |
+| `recommendation_batches` | AI 根批次保存输入快照、不可变 30 张候选池、首批 10 张大卡和成功调用的模型/token/字节/延迟摘要；两个池续批各保存实际展示的 10 张及其编排兴趣快照 | 能回放“AI 当时生成了什么、用户实际看到了什么、为何这样排序”，并量化成功调用成本 |
 | `recommendation_events` | exposure/open 的不可伪造事件，以及从冻结卡片派生的内容和时间窗口标签 | 能形成短期、长期、会话和时间窗口记忆 |
 | `recommendation_provider_attempts` | 无用户、命理或卡片正文的 provider 调用时间戳 | 独立于账户删除保留项目成本上限；不参与推荐或记忆 |
 
-批次状态为 `generating`、`retry_wait`、`ready`。AI 根批次由一个 owner 通过 lease + epoch 生成，保存 24 张候选池和首批展示；第二批是 `generation_kind=pool` 的 READY 续批，通过数据库事务确认它恰好是候选池未展示的 12 张，不新增 provider attempt。相同首批的并发 `/next` 只能得到同一个续批 ID 和同一顺序。第二批耗尽后，才把它作为 `after_batch_id` claim 新的 AI 根批次。
+批次状态为 `generating`、`retry_wait`、`ready`。AI 根批次由一个 owner 通过 lease + epoch 生成，保存 30 张候选池和首批 10 张；第二、第三批是 `generation_kind=pool` 的 READY 续批，通过数据库事务确认每批恰好取根池中未展示的 10 张，不新增 provider attempt。三个展示批次以 `after_batch_id` 串成父子链，同时都用 `pool_source_batch_id` 指向同一个 AI 根池。相同父批次的并发 `/next` 只能得到同一个续批 ID 和同一顺序；第三批耗尽后，才把它作为 `after_batch_id` claim 新的 AI 根批次。
 
 READY 批次不可变。批次过期按用户 IANA 时区的本地 23:00 子初换日；单卡 `validity` 是其事实引用共同指向的目标窗口。原局长期题可没有结束日，流月题不会跨越其对应事实窗口；未来流月题可以今天展示、但必须明确指向具体年份或月份。用户旅行而切换时区时，系统不会把旧时区生成的卡和新时区的换日时间混用，而是使用新的时区槽位。
 
-如果资料在 AI 生成中被修改，旧 worker 即使已经拿到正文也不能将它标为 READY，下一次请求会从新 revision 重新生成。被拦截或不可用的已 claim 批次会留在 `retry_wait`，不会被删除，因此仍可审计并继续计入成本保护。为避免同一个槽位因反复编辑资料无限重跑，单个槽位最多尝试 3 次；这仍不是对命理内容的判断。另有两个与命理无关的成本边界：每个用户在滚动 24 小时内最多新建 6 个批次，整个项目在滚动 24 小时内最多发起 100 次 provider 尝试。已有批次的读取和并发 join 不消耗新额度；任何会再调用 provider 的首次生成或重试都会受项目上限保护。项目上限命中时回退旧知识页，不凭空降级某个用户的命理内容。
+如果资料在 AI 生成中被修改，旧 worker 即使已经拿到正文也不能将它标为 READY，下一次请求会从新 revision 重新生成。被拦截或不可用的已 claim 批次会留在 `retry_wait`，不会被删除，因此仍可审计并继续计入成本保护。为避免同一个槽位因反复编辑资料无限重跑，单个槽位最多尝试 3 次；这仍不是对命理内容的判断。另有两个与命理无关的成本边界：每个用户在滚动 24 小时内最多新建 6 个批次，整个项目在滚动 24 小时内最多发起 100 次 provider 尝试。已有批次的读取和并发 join 不消耗新额度；任何会再调用 provider 的首次生成或重试都会受项目上限保护。一个完整 30 张候选池占 3 个批次名额，因此默认值等价于每天最多完整消费 2 个池、看到 60 张大卡；provider 成本仍只按 AI 根批次计数。
 
 数据库启用 RLS，但后端 service role 会绕过 RLS。因此 RPC 和 repository 仍要按 `user_id + bazi_profile_id` 做所有权过滤；所有事件必须确认批次属于当前用户且处于 READY。
 
@@ -271,27 +272,27 @@ READY 批次不可变。批次过期按用户 IANA 时区的本地 23:00 子初�
 | `GET /api/v2/recommendations/:batch_id` | 轮询或回读本人某一批，绝不触发新 AI 调用 | `200 ready/missing`、`202 generating/retry_wait`；不存在或非本人批次为 `404` |
 | `POST /api/v2/recommendations/events` | 幂等写入 `exposure` 或 `open` | `200 accepted` 或重复事件确认 |
 
-`POST /next` 必须提供 `bazi_profile_id`、IANA `timezone`、`session_id`，可选 `after_batch_id`。`POST /events` 必须提供 `event_id`、`batch_id`、`candidate_id`、`event_type` 和 `session_id`。响应包含 `deck_cards` 与 `center_cards`，详情页直接使用该卡的 `body`，不能再用旧洞察接口重新拼一篇泛化正文。
+`POST /next` 必须提供 `bazi_profile_id`、IANA `timezone`、`session_id`，可选 `after_batch_id`。`POST /events` 必须提供 `event_id`、`batch_id`、`candidate_id`、`event_type` 和 `session_id`。新响应严格包含 10 个 `deck_cards` 与空数组 `center_cards`；大卡详情页直接使用该卡的 `body`。下方逐项展开使用独立的旧洞察分析/详情接口，不从推荐响应取内容。
 
 客户端约束：
 
 1. 第一张实际显示时上报 exposure；不要在网络收到整批后把所有卡都算曝光。
 2. 用户点击才上报 open；事件 ID 在重试时保持不变。同一批同一张卡的同类事件已经记过时，服务端返回 duplicate，不把换会话后的重复上报计入偏好。
-3. 剩 2 张时预取下一批。首批后的预取只编排同池剩余 12 张，不调用 AI；第二批后的预取才可能生成新的 24 张。某一批次开始创建之后才发生的打开不会改写该 READY 批次，而进入下一次尚未开始的 AI 生成，因此预取后才打开的最后两张不会影响紧邻批次。
-4. V1 feature flag 关闭、AI 不可用或批次处于 `retry_wait` 时，保留旧 `/api/insights/*` 作为可观察的回退，不把示例内容伪装成新推荐结果。
+3. 剩 5 张时预取下一批，即 10 张中第 6 张开始显示时触发。预取前先 flush 已产生的 exposure/open；第一、第二批后的预取只编排同池候选，不调用 AI，第三批之后才可能生成新的 30 张。第 7–10 张后来发生的打开不会改写已经冻结的紧邻批次。
+4. 推荐 AI 不可用或批次处于 `retry_wait` 时，上方明确保留加载/不可用状态或已有真实卡片，不注入 mock，也不拿下方逐项展开内容充当推荐 fallback。
 5. 当前客户端没有跨进程保存 `after_batch_id`；App 重启或页面状态重建后会再次读取当天首批。若 MVP 要求跨会话接着浏览，需要由 iOS 保存当前批次游标，或后端增加“当前展示批次”游标合同。
 
 ## 11. 失败时的产品行为
 
 | 情况 | 后端动作 | 用户侧结果 |
 |---|---|---|
-| Gemini 超时或结构错误 | 批次进入 `retry_wait`，不保存半成品 | 继续看已有卡或使用旧洞察回退；不展示编造卡 |
-| 模型或 AI 配置缺失 | 释放本次 lease 并保留为可立即重试的 `retry_wait`，不保存正文 | 直接使用旧洞察回退；配置修复后可重新发起 next，最多受单槽位尝试上限保护 |
+| Gemini 超时或结构错误 | 批次进入 `retry_wait`，不保存半成品 | 继续看已有真实卡；没有可用卡时明确失败，不展示 mock 或编造卡 |
+| 模型或 AI 配置缺失 | 释放本次 lease 并保留为可立即重试的 `retry_wait`，不保存正文 | 上方明确不可用；配置修复后可重新发起 next，最多受单槽位尝试上限保护 |
 | AI 引用不存在的事实 ID | 机械拒绝整个输出，记录错误原因 | 不把无法追溯的题目展示给用户 |
 | 同时多个 next 请求 | 只有 owner 调 AI，其余请求轮询 | 不会因快速划卡生成多套相互矛盾的批次 |
-| 24 小时内已经达到用户批次上限 | 不再开启新的 AI 调用；已有展示批次仍可回读 | 使用当前卡或旧洞察回退，不把成本限制伪装成命理结论 |
-| 同一批次已尝试 3 次 | 不再重复调用 AI | 使用旧洞察回退；新的事实 revision 仍走新的受配额保护的槽位 |
-| 项目 24 小时 provider 预算已满 | 不再开启新的 AI 调用 | 统一回退旧洞察；这不是用户内容质量或兴趣的负面判断 |
+| 24 小时内已经达到用户批次上限 | 不再开启新的 AI 调用；已有展示批次仍可回读 | 继续使用已有真实卡或明确不可用，不把成本限制伪装成命理结论 |
+| 同一批次已尝试 3 次 | 不再重复调用 AI | 明确不可用；新的事实 revision 仍走新的受配额保护的槽位 |
+| 项目 24 小时 provider 预算已满 | 不再开启新的 AI 调用 | 上方统一明确不可用；这不是用户内容质量或兴趣的负面判断 |
 | 资料在 AI 生成中被编辑 | finalize 被并发资料版本拦截，旧正文不落库 | 下一次从新资料 revision 生成，不展示旧盘解释 |
 | 用户时辰未知 | 事实包只含三柱，AI 看到三柱事实 | 不补午时、不暗示时柱、不把缺失时柱当已知 |
 | 关系状态未知 | `reality_context.relationship.status=unknown` | 用“若单身 / 若已有伴侣”的条件句，不猜生活状态 |
@@ -305,8 +306,8 @@ READY 批次不可变。批次过期按用户 IANA 时区的本地 23:00 子初�
 - 事实有效期正确交集到卡片有效期；
 - 时间证据最多 16 个、总输入不超过 96 KB、无流日，超限时只删除完整窗口；
 - 卡片主时间窗口必须来自其事实引用，并与阶段/流年/流月尺度匹配；
-- topic/domain、枚举、24 张候选池、两次 8+4 展示、surface、位置和 ID 合同稳定；
-- 第二展示批次只含首批未展示的 12 张，且不增加 AI/provider 调用；
+- topic/domain、枚举、30 张候选池、三次 10 张 deck 展示、surface、位置和 ID 合同稳定；
+- 第二、第三展示批次各只含根池尚未展示的 10 张，且不增加 AI/provider 调用；
 - 伪造事实引用、重复 ID、无效窗口等结构错误会被拒绝；
 - exposure/open 与内容标签、时间窗口标签的闭环可以被稳定记录。
 
@@ -321,18 +322,18 @@ READY 批次不可变。批次过期按用户 IANA 时区的本地 23:00 子初�
 - 不做收藏、不感兴趣、主动 push、自由聊天记忆或跨产品数据画像。
 - 不因“填满卡组”制造没有事实依据的事件。
 
-这些不是永久拒绝，而是 V1 先把“事实、24 张候选池、展示编排、行为、下一次生成”这一条闭环做对。后续任何一项扩展都应先复用 `RecommendationCandidate` / `CardCandidate`、不可变 batch 和事件日志，而不是另起一条推荐链路。
+这些不是永久拒绝，而是 V1 先把“事实、30 张候选池、三批大卡编排、行为、下一次生成”这一条闭环做对。后续任何一项扩展都应先复用 `RecommendationCandidate` / `CardCandidate`、不可变 batch 和事件日志，而不是另起一条推荐链路。
 
 ## 14. 实现落点与验证状态
 
 | 层 | 本地实现落点 | 当前可证实的内容 | 仍待外部验证 |
 |---|---|---|---|
 | 命理事实与检索 | `DailyFortuneFactPackage`、`mingliInteractionEngine`、`recommendationTimeWindows.ts` | 完整时间线留在服务端；AI 只收最多 16 个完整证据窗口、96 KB、全大运轻索引、无流日 | 真实用户档案下 96 KB 触发率与命理覆盖质量 |
-| AI 合同 | `api/src/models/Recommendation.ts`、`api/src/utils/recommendationAi.ts` | 一次 Structured Output、固定 24 张 surface-neutral 候选、严格 schema、事实/主时间窗口校验、成功调用 metrics | 固定模型能否在时限和输出上限内稳定生成 24 张完整卡 |
-| 展示编排 | `api/src/services/recommendationService.ts` | 首批 8+4、打开后同池剩余 12 张重排、池耗尽后才再次调用 AI | 真实用户浏览节奏与排序效果 |
-| 持久化 | `supabase/migrations/013_recommendation_engine.sql`、`014_recommendation_candidate_pool.sql`、repository | 旧 6+3 兼容、24 张根候选池、8+4 实际展示、幂等续批、内容/时间窗口聚合记忆、所有权与 RLS 合同 | 迁移是否已在 staging/production 执行 |
+| AI 合同 | `api/src/models/Recommendation.ts`、`api/src/utils/recommendationAi.ts` | 一次 Structured Output、固定 30 张 surface-neutral 候选、严格 schema、事实/主时间窗口校验、成功调用 metrics | 固定模型能否在时限和输出上限内稳定生成 30 张完整卡 |
+| 展示编排 | `api/src/services/recommendationService.ts` | 10 + 10 + 10 三批大卡、打开后同池未展示候选重排、池耗尽后才再次调用 AI | 真实用户浏览节奏与排序效果 |
+| 持久化 | `supabase/migrations/013_recommendation_engine.sql`、`014_recommendation_candidate_pool.sql`、`015_recommendation_deck_only_pool.sql`、repository | 旧 6+3/8+4 可审计、30 张根候选池、三批 10+0 展示、幂等续批、只读 deck 的内容/时间窗口记忆、所有权与 RLS 合同 | 迁移是否已在 staging/production 执行 |
 | HTTP | `api/api/[...path].ts`、`api/server.ts`、recommendation service | next / poll / events 路由合同 | 部署后真实 Bearer、并发和错误响应 |
-| iOS | Insights DTO、service、view model、卡片详情 | 两个展示面和 exposure/open/prefetch 连接 | 真机/真实账号端到端体验 |
+| iOS | Insights DTO、service、view model、卡片详情 | 推荐只接上方大卡；10+0 校验；剩 5 张预取；下方逐项展开独立且不写推荐事件 | 真机/真实账号端到端体验 |
 | Eval | `api/evals/recommendationStructuralCorpus.ts`、`api/tests/recommendationEval.test.ts` | 100 例离线结构边界 | 人工命理审读与线上指标 |
 
 运行本地验收：

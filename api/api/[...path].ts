@@ -20,6 +20,7 @@ import profileExtendedHandler from './user/profile/extended';
 import baziCreateHandler from './bazi/create';
 import baziListHandler from './bazi/list';
 import baziByIdHandler from './bazi/[id]';
+import baziContextHandler from './bazi/[id]/context';
 import baziChartHandler from './bazi/[id]/chart';
 import baziLuckHandler from './bazi/[id]/luck';
 import baziLuckAnalysisHandler from './bazi/[id]/luck-analysis';
@@ -106,6 +107,9 @@ function resolveRoute(pathname: string): { handler?: Handler; params: Record<str
     if (id && id !== 'list' && id !== 'create') {
       if (child === 'chart') {
         return { handler: baziChartHandler, params: { id } };
+      }
+      if (child === 'context') {
+        return { handler: baziContextHandler, params: { id } };
       }
       if (child === 'luck') {
         return { handler: baziLuckHandler, params: { id } };

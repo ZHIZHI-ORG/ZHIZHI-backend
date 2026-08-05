@@ -11,6 +11,10 @@ const poolMigration = readFileSync(resolve(
   __dirname,
   '../../supabase/migrations/014_recommendation_candidate_pool.sql',
 ), 'utf8');
+const deckOnlyMigration = readFileSync(resolve(
+  __dirname,
+  '../../supabase/migrations/015_recommendation_deck_only_pool.sql',
+), 'utf8');
 
 function sectionAfter(anchor: string): string {
   const start = migration.indexOf(anchor);
@@ -239,6 +243,71 @@ run('V2 finalize atomically saves the generated pool and display selection conte
   );
 });
 
+run('V3 adds a 30-card pool projected into three deck-only 10-card batches without rewriting legacy rows', () => {
+  assert.match(deckOnlyMigration, /output_schema_version = 'recommendation_output_v1'[\s\S]*?deck_cards'\) = 6[\s\S]*?center_cards'\) = 3/);
+  assert.match(deckOnlyMigration, /output_schema_version = 'recommendation_output_v2'[\s\S]*?deck_cards'\) = 8[\s\S]*?center_cards'\) = 4/);
+  assert.match(deckOnlyMigration, /output_schema_version = 'recommendation_output_v3'[\s\S]*?deck_cards'\) = 10[\s\S]*?center_cards'\) = 0/);
+  assert.match(deckOnlyMigration, /pool_version' = 'recommendation_pool_v1'[\s\S]*?candidates'\) = 24/);
+  assert.match(deckOnlyMigration, /pool_version' = 'recommendation_pool_v2'[\s\S]*?candidates'\) = 30/);
+  assert.doesNotMatch(deckOnlyMigration, /(?:DELETE|UPDATE)\s+(?:FROM\s+)?recommendation_events/i);
+});
+
+run('V3 finalize atomically saves 30 candidates and only the first 10 deck cards', () => {
+  const start = deckOnlyMigration.indexOf('CREATE OR REPLACE FUNCTION finalize_recommendation_batch_v3(');
+  assert.notEqual(start, -1);
+  const finalize = deckOnlyMigration.slice(start).split(
+    'CREATE OR REPLACE FUNCTION create_recommendation_pool_continuation_v3(',
+  )[0];
+  assert.match(finalize, /p_output_schema_version IS DISTINCT FROM 'recommendation_output_v3'/);
+  assert.match(finalize, /pool_version' IS DISTINCT FROM 'recommendation_pool_v2'/);
+  assert.match(finalize, /jsonb_array_length\(p_candidate_pool_json -> 'candidates'\) <> 30/);
+  assert.match(finalize, /jsonb_array_length\(p_cards_json -> 'deck_cards'\) <> 10/);
+  assert.match(finalize, /jsonb_array_length\(p_cards_json -> 'center_cards'\) <> 0/);
+  assert.match(finalize, /v_pool_unique_count <> 30/);
+  assert.match(finalize, /v_display_unique_count <> 10/);
+  assert.match(finalize, /displayed\.card ->> 'surface' IS DISTINCT FROM 'deck'/);
+  assert.match(finalize, /first display cards must be exact deck projections of the candidate pool/);
+  assert.match(finalize, /candidate_pool_json = p_candidate_pool_json/);
+  assert.match(finalize, /selection_context_json = p_selection_context_json/);
+  assert.match(finalize, /generation_metrics_json = p_generation_metrics_json/);
+});
+
+run('V3 continuation can create both the second and third 10-card batch without provider work', () => {
+  const start = deckOnlyMigration.indexOf(
+    'CREATE OR REPLACE FUNCTION create_recommendation_pool_continuation_v3(',
+  );
+  assert.notEqual(start, -1);
+  const continuation = deckOnlyMigration.slice(start).split(
+    'CREATE OR REPLACE FUNCTION get_recommendation_preference_snapshot(',
+  )[0];
+  assert.match(continuation, /p_parent_batch_id UUID/);
+  assert.match(continuation, /p_root_batch_id UUID/);
+  assert.match(continuation, /pool continuation must contain 10 deck cards and no center cards/);
+  assert.match(continuation, /v_consumed_count NOT IN \(10, 20\)/);
+  assert.match(continuation, /v_selected_count <> 10/);
+  assert.match(continuation, /pool continuation must contain only unconsumed candidates/);
+  assert.match(continuation, /after_batch_id,[\s\S]*?v_parent\.id/);
+  assert.match(continuation, /pool_source_batch_id,[\s\S]*?v_root\.id/);
+  assert.match(continuation, /\(\(v_consumed_count \/ 10\) \+ 1\)::TEXT/);
+  assert.doesNotMatch(continuation, /INSERT INTO recommendation_provider_attempts/);
+});
+
+run('V3 recommendation memory excludes historical center events without deleting audit rows', () => {
+  const preferenceStart = deckOnlyMigration.indexOf(
+    'CREATE OR REPLACE FUNCTION get_recommendation_preference_snapshot(',
+  );
+  const timeWindowStart = deckOnlyMigration.indexOf(
+    'CREATE OR REPLACE FUNCTION get_recommendation_time_window_snapshot(',
+  );
+  assert.notEqual(preferenceStart, -1);
+  assert.notEqual(timeWindowStart, -1);
+  const preference = deckOnlyMigration.slice(preferenceStart, timeWindowStart);
+  const timeWindow = deckOnlyMigration.slice(timeWindowStart);
+  assert.match(preference, /WITH scoped_events AS MATERIALIZED[\s\S]*?event\.surface = 'deck'/);
+  assert.match(timeWindow, /WITH scoped_events AS MATERIALIZED[\s\S]*?event\.surface = 'deck'/);
+  assert.doesNotMatch(deckOnlyMigration, /(?:DELETE|UPDATE)\s+(?:FROM\s+)?recommendation_events/i);
+});
+
 run('time-window behavior labels are derived from frozen cards without changing the client event API', () => {
   assert.match(poolMigration, /ADD COLUMN IF NOT EXISTS primary_time_window_key TEXT/);
   assert.match(poolMigration, /ADD COLUMN IF NOT EXISTS referenced_window_keys TEXT\[\]/);
@@ -347,6 +416,10 @@ run('product tables and the detached cost ledger are private; RPCs are service-r
   assert.match(poolMigration, /GRANT EXECUTE ON FUNCTION get_recommendation_time_window_snapshot\([\s\S]*?TO service_role/);
   assert.match(poolMigration, /REVOKE ALL ON FUNCTION get_recommendation_memory_snapshot\([\s\S]*?FROM PUBLIC, anon, authenticated/);
   assert.match(poolMigration, /GRANT EXECUTE ON FUNCTION get_recommendation_memory_snapshot\([\s\S]*?TO service_role/);
+  assert.match(deckOnlyMigration, /REVOKE ALL ON FUNCTION finalize_recommendation_batch_v3\([\s\S]*?FROM PUBLIC, anon, authenticated/);
+  assert.match(deckOnlyMigration, /GRANT EXECUTE ON FUNCTION finalize_recommendation_batch_v3\([\s\S]*?TO service_role/);
+  assert.match(deckOnlyMigration, /REVOKE ALL ON FUNCTION create_recommendation_pool_continuation_v3\([\s\S]*?FROM PUBLIC, anon, authenticated/);
+  assert.match(deckOnlyMigration, /GRANT EXECUTE ON FUNCTION create_recommendation_pool_continuation_v3\([\s\S]*?TO service_role/);
 });
 
 console.log('Recommendation migration static checks passed.');

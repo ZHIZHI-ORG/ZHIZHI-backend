@@ -173,7 +173,7 @@ async function main(): Promise<void> {
     assert.equal((response.payload as any).error.details.cause, 'UNSUPPORTED_BODY_FIELD');
   });
 
-  await run('unavailable 给客户端明确回退旧知识页的信号', async () => {
+  await run('unavailable 明确失败且不指示客户端回退旧内容', async () => {
     const handler = createRecommendationNextHandler(nextDependencies({
       resolveRecommendations: async () => ({ status: 'unavailable', cause: 'GENERATION_DISABLED' }),
     }));
@@ -185,7 +185,7 @@ async function main(): Promise<void> {
     assert.equal(response.statusCode, 503);
     assert.deepEqual((response.payload as any).error.details, {
       cause: 'GENERATION_DISABLED',
-      next_action: 'FALLBACK_TO_INSIGHTS',
+      next_action: 'SHOW_UNAVAILABLE',
       retryable: false,
       request_id: 'request-test-1',
     });

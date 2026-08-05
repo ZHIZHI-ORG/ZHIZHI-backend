@@ -7,14 +7,15 @@ import type {
   DailyFortuneTimingPillar,
 } from './DailyFortune';
 
-export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v5' as const;
-export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v5' as const;
+export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v7' as const;
+export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v7' as const;
 export const RECOMMENDATION_TAXONOMY_VERSION = 'recommendation_taxonomy_v1' as const;
-export const RECOMMENDATION_CANDIDATE_POOL_VERSION = 'recommendation_pool_v1' as const;
-export const RECOMMENDATION_CANDIDATE_POOL_SIZE = 24 as const;
-export const RECOMMENDATION_DISPLAY_DECK_COUNT = 8 as const;
-export const RECOMMENDATION_DISPLAY_CENTER_COUNT = 4 as const;
-export const RECOMMENDATION_ORCHESTRATOR_VERSION = 'recommendation_orchestrator_v1' as const;
+export const RECOMMENDATION_CANDIDATE_POOL_VERSION = 'recommendation_pool_v2' as const;
+export const RECOMMENDATION_CANDIDATE_POOL_SIZE = 30 as const;
+export const RECOMMENDATION_DISPLAY_DECK_COUNT = 10 as const;
+/** Kept in the wire shape only for legacy-batch compatibility. New batches are deck-only. */
+export const RECOMMENDATION_DISPLAY_CENTER_COUNT = 0 as const;
+export const RECOMMENDATION_ORCHESTRATOR_VERSION = 'recommendation_orchestrator_v2' as const;
 export const RECOMMENDATION_EVIDENCE_WINDOW_LIMIT = 16 as const;
 export const RECOMMENDATION_TIME_WINDOWS_BYTE_LIMIT = 96 * 1024;
 
@@ -362,8 +363,18 @@ export type RecommendationRelationshipStatus =
   | 'married'
   | 'unknown';
 
+export type JungianCognitiveFunction =
+  | 'Ni' | 'Ne' | 'Si' | 'Se'
+  | 'Ti' | 'Te' | 'Fi' | 'Fe';
+
 /** Explicit user reality only; it is context for translation, never 命理 evidence. */
 export interface RecommendationRealityContext {
+  personality: {
+    /** User-declared MBTI, used only as soft cognitive context. */
+    mbti: string | null;
+    /** Dominant through inferior, followed by the four shadow functions. */
+    jungian_function_order: JungianCognitiveFunction[];
+  };
   life_stage: {
     primary: string | null;
     tags: string[];
@@ -379,11 +390,15 @@ export interface RecommendationRealityContext {
   };
   relationship: {
     status: RecommendationRelationshipStatus;
+    declared_status: string | null;
     current_focus: string | null;
   };
   saved_understanding: {
+    snapshot_version: string | null;
     current_focus: string[];
     expression_preferences: string[];
+    behavior_signals: string[];
+    updated_at: string | null;
   };
 }
 

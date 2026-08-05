@@ -19,6 +19,7 @@ const profileId = '00000000-0000-4000-8000-000000000002';
 const rootBatchId = '00000000-0000-4000-8000-000000000003';
 const nextBatchId = '00000000-0000-4000-8000-000000000004';
 const thirdBatchId = '00000000-0000-4000-8000-000000000006';
+const fourthBatchId = '00000000-0000-4000-8000-000000000007';
 
 function run(name: string, test: () => void | Promise<void>): Promise<void> {
   return Promise.resolve()
@@ -64,14 +65,18 @@ function bundle(relationshipStatus: string | null = null) {
       is_lunar: false,
       birth_timezone: 'Asia/Shanghai',
       birth_region: '上海',
+      mbti: 'INTJ',
       full_chart: { fixture: true },
       daily_fortune_context: {
         life_stage: { primary: '创业阶段', tags: ['产品验证'] },
         work_study: { mode: 'career', current_goal: '完成 MVP 上线' },
         relationship: { status: relationshipStatus, current_focus: null },
         zhizhi_understanding: {
+          snapshot_version: 'understanding-v1',
           current_focus: ['事业推进'],
           expression_preferences: ['直接'],
+          behavior_signals: ['偏好具体时间点'],
+          updated_at: '2026-08-02T00:00:00.000Z',
         },
       },
       updated_at: '2026-08-01T00:00:00.000Z',
@@ -188,7 +193,7 @@ function generatedPool(): RecommendationAiOutput {
     body: '流月变化会让既有互动节奏更容易被放大。如果目前有伴侣，可以先确认双方对时间和回应的期待；如果单身，则留意新互动是否稳定推进。',
   });
   return {
-    candidates: Array.from({ length: 24 }, (_, index) => makeCandidate(index)),
+    candidates: Array.from({ length: 30 }, (_, index) => makeCandidate(index)),
     generation_metrics: {
       model_id: 'gemini-test-pinned',
       outcome: 'success',
@@ -379,9 +384,19 @@ async function main(): Promise<void> {
     assert.equal(result.status, 'ready');
     assert.equal((result as any).batch.batch_id, nextBatchId);
     assert.equal(capturedInput.reality_context.relationship.status, 'unknown');
+    assert.equal(capturedInput.reality_context.relationship.declared_status, null);
+    assert.equal(capturedInput.reality_context.personality.mbti, 'INTJ');
+    assert.deepEqual(
+      capturedInput.reality_context.personality.jungian_function_order,
+      ['Ni', 'Te', 'Fi', 'Se', 'Ne', 'Ti', 'Fe', 'Si'],
+    );
     assert.equal(capturedInput.reality_context.life_stage.primary, '创业阶段');
     assert.equal(capturedInput.reality_context.work_study.current_goal, '完成 MVP 上线');
     assert.deepEqual(capturedInput.reality_context.saved_understanding.current_focus, ['事业推进']);
+    assert.deepEqual(
+      capturedInput.reality_context.saved_understanding.behavior_signals,
+      ['偏好具体时间点'],
+    );
     const currentFactsJson = JSON.stringify(capturedInput.fortune_facts);
     assert.equal(currentFactsJson.includes('domain_candidates'), false);
     assert.equal(currentFactsJson.includes('activated_palaces'), false);
@@ -409,7 +424,7 @@ async function main(): Promise<void> {
     assert.equal(
       capturedInput.time_windows.some((window: any) => window.kind === 'liuri'),
       false,
-      '推荐大卡和中心卡不接收流日窗口',
+      '推荐大卡不接收流日窗口',
     );
     assert.deepEqual(
       capturedInput.preference_context.current_session_opens.map((item: any) => item.candidate_id),
@@ -453,48 +468,58 @@ async function main(): Promise<void> {
       now: now.toISOString(),
     });
     assert.deepEqual(finalizedInput.inputSnapshot, capturedInput);
-    assert.equal(finalizedInput.candidatePool.pool_version, 'recommendation_pool_v1');
-    assert.equal(finalizedInput.candidatePool.candidates.length, 24);
-    assert.equal(finalizedInput.cards.deck_cards.length, 8);
-    assert.equal(finalizedInput.cards.center_cards.length, 4);
+    assert.equal(finalizedInput.candidatePool.pool_version, 'recommendation_pool_v2');
+    assert.equal(finalizedInput.candidatePool.candidates.length, 30);
+    assert.equal(finalizedInput.cards.deck_cards.length, 10);
+    assert.equal(finalizedInput.cards.center_cards.length, 0);
     assert.equal(finalizedInput.selectionContext.source, 'ai_generation');
     assert.equal(finalizedInput.generationMetrics.total_token_count, 900);
-    assert.equal(finalizedInput.outputSchemaVersion, 'recommendation_output_v2');
+    assert.equal(finalizedInput.outputSchemaVersion, 'recommendation_output_v3');
   });
 
-  await run('打开行为会重排同一 24 张池的剩余 12 张，第二展示批次不再调用 AI', async () => {
-    let source: RecommendationBatchRow | null = null;
-    let continuationCards: any;
-    let continuationContext: any;
-    let useOpenPreference = false;
+  await run('30 张池分三批各展示 10 张大卡，前批打开会重排下一批，第三批后才调用新 AI', async () => {
+    const rows = new Map<string, RecommendationBatchRow>();
+    const continuationInputs: any[] = [];
+    let preferenceStage = 0;
+    let secondAiInput: any;
     let aiCalls = 0;
     let claims = 0;
     const service = createRecommendationService({
       batches: repository({
-        findById: async (_userId: string, id: string) => {
-          if (id === rootBatchId) return source;
-          return batchRow({
-            id: nextBatchId,
-            after_batch_id: rootBatchId,
-            cards_json: continuationCards,
+        findById: async (_userId: string, id: string) => rows.get(id) || null,
+        createPoolContinuation: async (value: any) => {
+          continuationInputs.push(value);
+          assert.equal(value.rootBatchId, rootBatchId);
+          const id = value.parentBatchId === rootBatchId ? nextBatchId : thirdBatchId;
+          const root = rows.get(rootBatchId) as RecommendationBatchRow;
+          rows.set(id, batchRow({
+            id,
+            generation_key: `${root.generation_key}:pool:${continuationInputs.length + 1}`,
+            after_batch_id: value.parentBatchId,
+            profile_revision_hash: root.profile_revision_hash,
+            profile_updated_at: root.profile_updated_at,
+            generation_timezone: root.generation_timezone,
+            effective_date: root.effective_date,
+            input_hash: root.input_hash,
+            valid_until: root.valid_until,
+            cards_json: value.cards,
             candidate_pool_json: null,
             generation_kind: 'pool',
             pool_source_batch_id: rootBatchId,
-            selection_context_json: continuationContext,
-            prompt_version: 'recommendation_prompt_v3',
-            output_schema_version: 'recommendation_output_v2',
-          });
-        },
-        createPoolContinuation: async (value: any) => {
-          continuationCards = value.cards;
-          continuationContext = value.selectionContext;
-          return nextBatchId;
+            selection_context_json: value.selectionContext,
+            prompt_version: root.prompt_version,
+            output_schema_version: 'recommendation_output_v3',
+            taxonomy_version: root.taxonomy_version,
+            model_id: root.model_id,
+          }));
+          return id;
         },
         claim: async (value: any) => {
           claims += 1;
-          assert.equal(claims, 1, '同池续批不应 claim 第二次 AI generation');
-          source = batchRow({
-            id: rootBatchId,
+          const id = claims === 1 ? rootBatchId : fourthBatchId;
+          rows.set(id, batchRow({
+            id,
+            after_batch_id: value.afterBatchId,
             profile_revision_hash: value.profileRevisionHash,
             profile_updated_at: value.profileUpdatedAt,
             generation_timezone: value.generationTimezone,
@@ -508,16 +533,17 @@ async function main(): Promise<void> {
             output_schema_version: null,
             taxonomy_version: null,
             model_id: null,
-          });
+          }));
           return {
-            outcome: 'owner', batchId: rootBatchId, status: 'generating',
+            outcome: 'owner', batchId: id, status: 'generating',
             leaseToken: '00000000-0000-4000-8000-000000000005', leaseEpoch: 1,
             leaseExpiresAt: '2026-08-03T12:02:30.000Z', nextAttemptAt: null,
           };
         },
         finalize: async (value: any) => {
-          source = batchRow({
-            ...(source as RecommendationBatchRow),
+          const source = rows.get(value.batchId) as RecommendationBatchRow;
+          rows.set(value.batchId, batchRow({
+            ...source,
             status: 'ready',
             lease_token: null,
             lease_expires_at: null,
@@ -528,37 +554,37 @@ async function main(): Promise<void> {
             output_schema_version: value.outputSchemaVersion,
             taxonomy_version: value.taxonomyVersion,
             model_id: value.modelId,
-          });
+          }));
           return true;
         },
-        getPreferenceSnapshot: async () => preferenceSnapshot(useOpenPreference ? {
-          current_session_opens: [{
-            candidate_id: 'candidate-1',
-            content_profile: {
-              domain: 'career',
-              topic_key: 'career_direction',
-              question_job: 'forecast',
-              content_horizon: 'month',
-            },
-            primary_time_window_key: 'liuyue:2026-07-07:乙未',
-            referenced_window_keys: ['liuyue:2026-07-07:乙未'],
-            opened_at: '2026-08-03T11:30:00.000Z',
-          }],
-        } : {}),
+        getPreferenceSnapshot: async () => {
+          if (preferenceStage === 0) return preferenceSnapshot();
+          const candidateId = preferenceStage === 1 ? 'candidate-1' : 'candidate-27';
+          return preferenceSnapshot({
+            current_session_opens: [{
+              candidate_id: candidateId,
+              content_profile: {
+                domain: 'career',
+                topic_key: 'career_direction',
+                question_job: 'forecast',
+                content_horizon: 'month',
+              },
+              primary_time_window_key: 'liuyue:2026-07-07:乙未',
+              referenced_window_keys: ['liuyue:2026-07-07:乙未'],
+              opened_at: '2026-08-03T11:30:00.000Z',
+            }],
+          });
+        },
       }),
       getEngineBundle: async () => bundle(null),
       getUser: async () => null,
-      generateCandidates: async () => {
+      generateCandidates: async (value: any) => {
         aiCalls += 1;
+        if (aiCalls === 2) secondAiInput = value;
         const pool = generatedPool();
-        pool.candidates[12] = {
-          ...pool.candidates[12],
+        pool.candidates[10] = {
+          ...pool.candidates[10],
           selection_role: 'p1_mingli_change',
-        };
-        pool.candidates[13] = {
-          ...pool.candidates[13],
-          primary_time_window_key: 'liuyue:2026-08-07:丙申',
-          referenced_window_keys: ['liuyue:2026-08-07:丙申'],
         };
         return pool;
       },
@@ -568,104 +594,87 @@ async function main(): Promise<void> {
 
     const first = await service.resolveRecommendations(userId, input());
     assert.equal(first.status, 'ready');
+    assert.equal((first as any).batch.batch_id, rootBatchId);
+    assert.equal((first as any).batch.deck_cards.length, 10);
+    assert.equal((first as any).batch.center_cards.length, 0);
     assert.equal(aiCalls, 1);
-    useOpenPreference = true;
-    const result = await service.resolveRecommendations(userId, input(rootBatchId));
-    assert.equal(result.status, 'ready');
-    assert.equal((result as any).batch.batch_id, nextBatchId);
-    assert.equal((result as any).batch.after_batch_id, rootBatchId);
+    preferenceStage = 1;
+    const second = await service.resolveRecommendations(userId, input(rootBatchId));
+    assert.equal(second.status, 'ready');
+    assert.equal((second as any).batch.batch_id, nextBatchId);
+    assert.equal((second as any).batch.after_batch_id, rootBatchId);
     assert.equal(claims, 1);
     assert.equal(aiCalls, 1);
-    assert.equal(continuationCards.deck_cards.length, 8);
-    assert.equal(continuationCards.center_cards.length, 4);
+    assert.equal((second as any).batch.deck_cards.length, 10);
+    assert.equal((second as any).batch.center_cards.length, 0);
     assert.equal(
-      continuationCards.center_cards[0].pool_position,
-      12,
+      (second as any).batch.deck_cards[0].pool_position,
+      10,
       '同等展示适配度下，P1 命理变化不能被兴趣命中的 P3 内容压后',
     );
-    assert.equal(
-      continuationCards.deck_cards[0].pool_position,
-      19,
-      '同一 selection role 内，当前会话打开应继续重排相近内容',
-    );
     assert.ok(
-      continuationCards.center_cards.some((card: any) => card.pool_position === 13),
-      '时间窗口记忆不能覆盖内容兴趣，把相同月份误当成用户偏好',
+      (second as any).batch.deck_cards.some((card: any) => card.pool_position === 27),
+      '第一批打开的事业卡应让同类未展示内容进入第二批',
     );
     assert.deepEqual(
-      new Set([
-        ...continuationCards.deck_cards,
-        ...continuationCards.center_cards,
-      ].map((card: any) => card.candidate_id)),
-      new Set(Array.from({ length: 12 }, (_, index) => `candidate-${index + 12}`)),
+      new Set((second as any).batch.deck_cards.map((card: any) => card.candidate_id)),
+      new Set(['candidate-10', 'candidate-11', 'candidate-13', 'candidate-15', 'candidate-17',
+        'candidate-19', 'candidate-21', 'candidate-23', 'candidate-25', 'candidate-27']),
     );
-    assert.equal(continuationContext.source, 'pool_continuation');
+    assert.equal(continuationInputs[0].selectionContext.source, 'pool_continuation');
     assert.deepEqual(
-      continuationContext.preference_context.current_session_opens.map((item: any) => item.candidate_id),
+      continuationInputs[0].selectionContext.preference_context.current_session_opens
+        .map((item: any) => item.candidate_id),
       ['candidate-1'],
     );
-  });
 
-  await run('24 张池耗尽后才新调一次 AI，且新调用包含刚才的打开行为', async () => {
-    const child = batchRow({
-      id: nextBatchId,
-      after_batch_id: rootBatchId,
-      cards_json: displayCards(8, 4),
-      candidate_pool_json: null,
-      generation_kind: 'pool',
-      pool_source_batch_id: rootBatchId,
-      selection_context_json: {
-        orchestrator_version: 'recommendation_orchestrator_v1',
-        source: 'pool_continuation',
-        preference_context: {
-          recent_14d: [], long_term_90d: [], current_session_opens: [],
-        },
-      },
-      prompt_version: 'recommendation_prompt_v3',
-      output_schema_version: 'recommendation_output_v2',
-    });
-    let capturedInput: any;
-    let aiCalls = 0;
-    const service = createRecommendationService({
-      batches: repository({
-        findById: async (_userId: string, id: string) => (
-          id === nextBatchId ? child : batchRow({ id: thirdBatchId })
-        ),
-        claim: async () => ({
-          outcome: 'owner', batchId: thirdBatchId, status: 'generating',
-          leaseToken: '00000000-0000-4000-8000-000000000005', leaseEpoch: 1,
-          leaseExpiresAt: '2026-08-03T12:02:30.000Z', nextAttemptAt: null,
-        }),
-        getPreferenceSnapshot: async () => preferenceSnapshot({
-          current_session_opens: [{
-            candidate_id: 'candidate-13',
-            content_profile: {
-              domain: 'career',
-              topic_key: 'career_direction',
-              question_job: 'forecast',
-              content_horizon: 'month',
-            },
-            opened_at: '2026-08-03T11:45:00.000Z',
-          }],
-        }),
-      }),
-      getEngineBundle: async () => bundle(null),
-      getUser: async () => null,
-      generateCandidates: async (value: any) => {
-        aiCalls += 1;
-        capturedInput = value;
-        return generatedPool();
-      },
-      now: () => now,
-      generationEnabled: () => true,
-    });
-
-    const result = await service.resolveRecommendations(userId, input(nextBatchId));
-    assert.equal(result.status, 'ready');
-    assert.equal(aiCalls, 1);
+    preferenceStage = 2;
+    const third = await service.resolveRecommendations(userId, input(nextBatchId));
+    assert.equal(third.status, 'ready');
+    assert.equal((third as any).batch.batch_id, thirdBatchId);
+    assert.equal((third as any).batch.after_batch_id, nextBatchId);
+    assert.equal((third as any).batch.deck_cards.length, 10);
+    assert.equal((third as any).batch.center_cards.length, 0);
+    assert.equal(
+      (third as any).batch.deck_cards[0].pool_position,
+      29,
+      '第二批打开的事业卡应继续影响第三批剩余卡片顺序',
+    );
+    assert.equal(aiCalls, 1, '完整三批必须只消费一次 AI 生成');
+    assert.equal(claims, 1, '第二、第三批都不能 claim 新 AI generation');
     assert.deepEqual(
-      capturedInput.preference_context.current_session_opens.map((item: any) => item.candidate_id),
-      ['candidate-13'],
+      continuationInputs.map((value) => ({
+        parentBatchId: value.parentBatchId,
+        rootBatchId: value.rootBatchId,
+      })),
+      [
+        { parentBatchId: rootBatchId, rootBatchId },
+        { parentBatchId: nextBatchId, rootBatchId },
+      ],
+    );
+
+    const displayed = [first, second, third].flatMap(
+      (batch) => (batch as any).batch.deck_cards,
+    );
+    assert.equal(displayed.length, 30);
+    assert.equal(new Set(displayed.map((card: any) => card.candidate_id)).size, 30);
+    assert.deepEqual(
+      displayed.map((card: any) => card.pool_position)
+        .sort((left: number, right: number) => left - right),
+      Array.from({ length: 30 }, (_, index) => index),
+    );
+
+    const fourth = await service.resolveRecommendations(userId, input(thirdBatchId));
+    assert.equal(fourth.status, 'ready');
+    assert.equal((fourth as any).batch.batch_id, fourthBatchId);
+    assert.equal((fourth as any).batch.after_batch_id, thirdBatchId);
+    assert.equal((fourth as any).batch.deck_cards.length, 10);
+    assert.equal((fourth as any).batch.center_cards.length, 0);
+    assert.equal(aiCalls, 2, '第三批耗尽后才允许第二次 AI 调用');
+    assert.equal(claims, 2);
+    assert.deepEqual(
+      secondAiInput.preference_context.current_session_opens.map((item: any) => item.candidate_id),
+      ['candidate-27'],
     );
   });
 
@@ -961,7 +970,7 @@ async function main(): Promise<void> {
     assert.equal(aiCalls, 1);
   });
 
-  await run('feature flag 关闭时不 claim、不调用 AI，客户端可回退旧知识页', async () => {
+  await run('feature flag 关闭时不 claim、不调用 AI，并明确返回不可用', async () => {
     let claims = 0;
     let aiCalls = 0;
     const service = createRecommendationService({

@@ -21,6 +21,7 @@ import {
   RecommendationBatchResponse,
   RecommendationBehaviorEventType,
   RecommendationCandidate,
+  JungianCognitiveFunction,
   RecommendationCandidatePool,
   RecommendationInterestSignal,
   RecommendationNextRequest,
@@ -56,7 +57,7 @@ import {
   RecommendationTimeWindowBudgetError,
 } from './recommendationTimeWindows';
 
-const OUTPUT_SCHEMA_VERSION = 'recommendation_output_v2';
+const OUTPUT_SCHEMA_VERSION = 'recommendation_output_v3';
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const DEFAULT_JOIN_RETRY_MS = 1_000;
 const RECOMMENDATION_GENERATION_LEASE_TTL_SECONDS = 150;
@@ -110,8 +111,8 @@ const defaultDependencies: RecommendationServiceDependencies = {
   getUser: userRepository.findById.bind(userRepository),
   generateCandidates: generateRecommendationCandidatesWithAi,
   now: () => new Date(),
-  // Keep the legacy insights path as the production default until this new
-  // recommendation loop is explicitly enabled in the deployment environment.
+  // Generation is explicitly enabled per environment. Disabled means a clear
+  // unavailable state; callers must not substitute mock or legacy content.
   generationEnabled: () => readBooleanFlag('RECOMMENDATIONS_V1_ENABLED', false),
 };
 
@@ -222,27 +223,36 @@ async function resolveRecommendationsWithDependencies(
   ]);
   const afterBatchId = afterBatch?.id ?? null;
 
-  if (afterBatch?.candidate_pool_json) {
-    let continuationCards: RecommendationBatchCards;
+  if (afterBatch?.output_schema_version === OUTPUT_SCHEMA_VERSION) {
+    let continuationState: RecommendationPoolContinuationState;
     try {
-      continuationCards = selectPoolContinuationCards(
+      continuationState = await loadPoolContinuationState(
+        dependencies,
+        userId,
         afterBatch,
-        preferenceSnapshot,
       );
     } catch {
       return unavailable('CANDIDATE_POOL_INVALID', false, afterBatch.id);
     }
-    const continuationId = await dependencies.batches.createPoolContinuation({
-      userId,
-      sourceBatchId: afterBatch.id,
-      cards: continuationCards,
-      selectionContext: buildSelectionContext(preferenceSnapshot, 'pool_continuation'),
-    });
-    const continuation = await requiredBatch(dependencies, userId, continuationId);
-    if (!isEffectiveDateCurrent(dependencies, input.timezone, dateContext.effectiveDate)) {
-      return unavailable('DATE_ROLLED_OVER', true);
+    const continuationCards = selectPoolContinuationCards(
+      continuationState.root,
+      continuationState.consumedCandidateIds,
+      preferenceSnapshot,
+    );
+    if (continuationCards) {
+      const continuationId = await dependencies.batches.createPoolContinuation({
+        userId,
+        parentBatchId: afterBatch.id,
+        rootBatchId: continuationState.root.id,
+        cards: continuationCards,
+        selectionContext: buildSelectionContext(preferenceSnapshot, 'pool_continuation'),
+      });
+      const continuation = await requiredBatch(dependencies, userId, continuationId);
+      if (!isEffectiveDateCurrent(dependencies, input.timezone, dateContext.effectiveDate)) {
+        return unavailable('DATE_ROLLED_OVER', true);
+      }
+      return readyResult(continuation, dateContext.nextBoundaryAt);
     }
-    return readyResult(continuation, dateContext.nextBoundaryAt);
   }
 
   let timeWindows: RecommendationTimeWindow[];
@@ -652,17 +662,91 @@ function buildSelectionContext(
   };
 }
 
+interface RecommendationPoolContinuationState {
+  root: RecommendationBatchRow;
+  consumedCandidateIds: Set<string>;
+}
+
+async function loadPoolContinuationState(
+  dependencies: RecommendationServiceDependencies,
+  userId: string,
+  afterBatch: RecommendationBatchRow,
+): Promise<RecommendationPoolContinuationState> {
+  const chain: RecommendationBatchRow[] = [afterBatch];
+  let current = afterBatch;
+
+  while (current.generation_kind === 'pool') {
+    if (!current.after_batch_id || chain.length >= 3) {
+      throw new Error('候选池展示链无效');
+    }
+    const parent = await dependencies.batches.findById(userId, current.after_batch_id);
+    if (
+      !parent
+      || parent.status !== 'ready'
+      || parent.profile_id !== afterBatch.profile_id
+      || parent.profile_revision_hash !== afterBatch.profile_revision_hash
+      || parent.effective_date !== afterBatch.effective_date
+      || parent.generation_timezone !== afterBatch.generation_timezone
+      || parent.output_schema_version !== OUTPUT_SCHEMA_VERSION
+      || !isFutureTimestamp(parent.valid_until, dependencies.now())
+    ) {
+      throw new Error('候选池展示链父批次无效');
+    }
+    chain.push(parent);
+    current = parent;
+  }
+
+  const root = current;
+  if (
+    root.generation_kind !== 'ai'
+    || !root.candidate_pool_json
+    || root.candidate_pool_json.pool_version !== RECOMMENDATION_CANDIDATE_POOL_VERSION
+    || root.candidate_pool_json.candidates.length !== RECOMMENDATION_CANDIDATE_POOL_SIZE
+    || chain.some((batch) => (
+      batch.generation_kind === 'pool' && batch.pool_source_batch_id !== root.id
+    ))
+  ) {
+    throw new Error('候选池根批次无效');
+  }
+
+  const poolIds = new Set(
+    root.candidate_pool_json.candidates.map((candidate) => candidate.candidate_id),
+  );
+  if (poolIds.size !== RECOMMENDATION_CANDIDATE_POOL_SIZE) {
+    throw new Error('候选池 candidate_id 不唯一');
+  }
+
+  const consumedCandidateIds = new Set<string>();
+  chain.forEach((batch) => {
+    if (
+      !batch.cards_json
+      || batch.cards_json.deck_cards.length !== RECOMMENDATION_DISPLAY_DECK_COUNT
+      || batch.cards_json.center_cards.length !== RECOMMENDATION_DISPLAY_CENTER_COUNT
+      || batch.cards_json.deck_cards.some((candidate) => candidate.surface !== 'deck')
+    ) {
+      throw new Error('候选池展示批次形状无效');
+    }
+    batch.cards_json.deck_cards.forEach((candidate) => {
+      if (!poolIds.has(candidate.candidate_id) || consumedCandidateIds.has(candidate.candidate_id)) {
+        throw new Error('候选池展示批次包含无效或重复卡片');
+      }
+      consumedCandidateIds.add(candidate.candidate_id);
+    });
+  });
+
+  return { root, consumedCandidateIds };
+}
+
 function selectPoolContinuationCards(
-  source: RecommendationBatchRow,
+  root: RecommendationBatchRow,
+  consumedCandidateIds: Set<string>,
   preferenceSnapshot: RecommendationPreferenceSnapshot,
-): RecommendationBatchCards {
-  const pool = source.candidate_pool_json;
-  const displayed = source.cards_json;
+): RecommendationBatchCards | null {
+  const pool = root.candidate_pool_json;
   if (
     !pool
     || pool.pool_version !== RECOMMENDATION_CANDIDATE_POOL_VERSION
     || pool.candidates.length !== RECOMMENDATION_CANDIDATE_POOL_SIZE
-    || !displayed
   ) {
     throw new Error('候选池续批缺少完整来源');
   }
@@ -671,23 +755,21 @@ function selectPoolContinuationCards(
   if (poolIds.size !== RECOMMENDATION_CANDIDATE_POOL_SIZE) {
     throw new Error('候选池 candidate_id 不唯一');
   }
-  const displayedIds = new Set([
-    ...displayed.deck_cards,
-    ...displayed.center_cards,
-  ].map((candidate) => candidate.candidate_id));
   const expectedDisplayCount = RECOMMENDATION_DISPLAY_DECK_COUNT
     + RECOMMENDATION_DISPLAY_CENTER_COUNT;
   if (
-    displayedIds.size !== expectedDisplayCount
-    || [...displayedIds].some((candidateId) => !poolIds.has(candidateId))
+    ![expectedDisplayCount, expectedDisplayCount * 2, expectedDisplayCount * 3]
+      .includes(consumedCandidateIds.size)
+    || [...consumedCandidateIds].some((candidateId) => !poolIds.has(candidateId))
   ) {
-    throw new Error('首个展示批次不属于候选池');
+    throw new Error('候选池已展示数量无效');
   }
 
   const remaining = pool.candidates.filter(
-    (candidate) => !displayedIds.has(candidate.candidate_id),
+    (candidate) => !consumedCandidateIds.has(candidate.candidate_id),
   );
-  if (remaining.length !== expectedDisplayCount) {
+  if (remaining.length === 0) return null;
+  if (remaining.length < expectedDisplayCount) {
     throw new Error('候选池剩余数量无效');
   }
   return selectDisplayCards(remaining, preferenceSnapshot, 'pool_continuation');
@@ -717,36 +799,17 @@ function selectDisplayCards(
     })
     : [...candidates].sort((left, right) => left.pool_position - right.pool_position);
   const selected = ranked.slice(0, requiredCount);
-  const centerIds = new Set(
-    selected
-      .map((candidate, index) => ({ candidate, index }))
-      .sort((left, right) => (
-        centerSuitability(right.candidate) - centerSuitability(left.candidate)
-        || left.index - right.index
-      ))
-      .slice(0, RECOMMENDATION_DISPLAY_CENTER_COUNT)
-      .map(({ candidate }) => candidate.candidate_id),
-  );
-  const deck = selected.filter((candidate) => !centerIds.has(candidate.candidate_id));
-  const center = selected.filter((candidate) => centerIds.has(candidate.candidate_id));
-  if (
-    deck.length !== RECOMMENDATION_DISPLAY_DECK_COUNT
-    || center.length !== RECOMMENDATION_DISPLAY_CENTER_COUNT
-  ) {
+  if (selected.length !== RECOMMENDATION_DISPLAY_DECK_COUNT) {
     throw new Error('展示面分配数量无效');
   }
 
   return {
-    deck_cards: deck.map((candidate, position) => ({
+    deck_cards: selected.map((candidate, position) => ({
       ...candidate,
       position,
       surface: 'deck',
     })),
-    center_cards: center.map((candidate, position) => ({
-      ...candidate,
-      position,
-      surface: 'center',
-    })),
+    center_cards: [],
   };
 }
 
@@ -776,25 +839,6 @@ function currentSessionAffinity(
   }, 0);
 }
 
-function centerSuitability(candidate: RecommendationCandidate): number {
-  const jobScore: Record<RecommendationCandidate['content_profile']['question_job'], number> = {
-    describe: 3,
-    explain: 3,
-    compare: 2,
-    forecast: 1,
-    act: 1,
-  };
-  const horizonScore: Record<RecommendationCandidate['content_profile']['content_horizon'], number> = {
-    baseline: 3,
-    phase: 2,
-    year: 1,
-    month: 0,
-  };
-  return jobScore[candidate.content_profile.question_job]
-    + horizonScore[candidate.content_profile.content_horizon]
-    + (candidate.selection_role === 'p2_baseline' ? 3 : 0);
-}
-
 function normalizeRelationshipStatus(
   facts: DailyFortuneFactPackage,
 ): RecommendationRelationshipStatus {
@@ -802,25 +846,59 @@ function normalizeRelationshipStatus(
   // "未婚" is marital status, not proof that the user currently has no
   // partner. Only an explicit present-tense relationship statement is safe.
   if (['single', 'single_now', 'unpartnered', '单身'].includes(raw)) return 'single';
-  if (['dating', 'in_relationship', 'partnered', '恋爱', '恋爱中', '有伴侣'].includes(raw)) return 'dating';
-  if (['married', 'marriage', '已婚', '婚姻'].includes(raw)) return 'married';
+  if (['dating', 'in_relationship', 'partnered', 'getting_to_know', '暧昧了解中', '恋爱', '恋爱中', '有伴侣'].includes(raw)) return 'dating';
+  if (['married', 'marriage', 'stable_or_married', '已婚', '婚姻', '已婚或稳定关系'].includes(raw)) return 'married';
   return 'unknown';
+}
+
+const JUNGIAN_FUNCTION_ORDER: Record<string, JungianCognitiveFunction[]> = {
+  INTJ: ['Ni', 'Te', 'Fi', 'Se', 'Ne', 'Ti', 'Fe', 'Si'],
+  INFJ: ['Ni', 'Fe', 'Ti', 'Se', 'Ne', 'Fi', 'Te', 'Si'],
+  INTP: ['Ti', 'Ne', 'Si', 'Fe', 'Te', 'Ni', 'Se', 'Fi'],
+  INFP: ['Fi', 'Ne', 'Si', 'Te', 'Fe', 'Ni', 'Se', 'Ti'],
+  ISTJ: ['Si', 'Te', 'Fi', 'Ne', 'Se', 'Ti', 'Fe', 'Ni'],
+  ISFJ: ['Si', 'Fe', 'Ti', 'Ne', 'Se', 'Fi', 'Te', 'Ni'],
+  ISTP: ['Ti', 'Se', 'Ni', 'Fe', 'Te', 'Si', 'Ne', 'Fi'],
+  ISFP: ['Fi', 'Se', 'Ni', 'Te', 'Fe', 'Si', 'Ne', 'Ti'],
+  ENTJ: ['Te', 'Ni', 'Se', 'Fi', 'Ti', 'Ne', 'Si', 'Fe'],
+  ENFJ: ['Fe', 'Ni', 'Se', 'Ti', 'Fi', 'Ne', 'Si', 'Te'],
+  ENTP: ['Ne', 'Ti', 'Fe', 'Si', 'Ni', 'Te', 'Fi', 'Se'],
+  ENFP: ['Ne', 'Fi', 'Te', 'Si', 'Ni', 'Fe', 'Ti', 'Se'],
+  ESTJ: ['Te', 'Si', 'Ne', 'Fi', 'Ti', 'Se', 'Ni', 'Fe'],
+  ESFJ: ['Fe', 'Si', 'Ne', 'Ti', 'Fi', 'Se', 'Ni', 'Te'],
+  ESTP: ['Se', 'Ti', 'Fe', 'Ni', 'Si', 'Te', 'Fi', 'Ne'],
+  ESFP: ['Se', 'Fi', 'Te', 'Ni', 'Si', 'Fe', 'Ti', 'Ne'],
+};
+
+function buildPersonalityContext(mbti: string | null) {
+  const normalized = mbti?.trim().toUpperCase() || '';
+  const functionOrder = JUNGIAN_FUNCTION_ORDER[normalized];
+  return {
+    mbti: functionOrder ? normalized : null,
+    jungian_function_order: functionOrder ? [...functionOrder] : [],
+  };
 }
 
 function buildRealityContext(
   facts: DailyFortuneFactPackage,
 ): RecommendationRealityContext {
   const declared = facts.user_context.declared;
+  const understanding = facts.user_context.zhizhi_understanding;
   return {
+    personality: buildPersonalityContext(declared.mbti),
     life_stage: declared.life_stage,
     work_study: declared.work_study,
     relationship: {
       status: normalizeRelationshipStatus(facts),
+      declared_status: declared.relationship.status,
       current_focus: declared.relationship.current_focus,
     },
     saved_understanding: {
-      current_focus: facts.user_context.zhizhi_understanding.current_focus,
-      expression_preferences: facts.user_context.zhizhi_understanding.expression_preferences,
+      snapshot_version: understanding.snapshot_version,
+      current_focus: understanding.current_focus,
+      expression_preferences: understanding.expression_preferences,
+      behavior_signals: understanding.behavior_signals,
+      updated_at: understanding.updated_at,
     },
   };
 }
