@@ -36,7 +36,7 @@ export const DAILY_FORTUNE_DEVELOPER_PROMPT = `请根据随后提供的 fortune_
    - branch_half_harmony、branch_arch_harmony、branch_seen_stem_hidden_harmony、branch_half_meeting、branch_arch_meeting、branch_hidden_combination、branch_hidden_meeting 都是条件性信号，绝不可升级写成完整三合或三会；
    - branch_same 只表示同类力量重复出现，不能自动写成吉或凶。
    仅当输入提供时，才使用 transform_element、center_branch、missing_branch、seen_stem、full_match。合不等于必然顺利，冲刑不等于必然坏事；结合全局写出实际节奏。
-4. 在 career、love、health、study、wealth 中比较当天相对用户自身变化最明显的两个不同场景。命理事实决定 Top 2；现实上下文只负责把已支持的变化映射到工作、关系、学习、金钱或日常状态，不能反过来制造结论。不要固定偏向任何常见组合。
+4. 在 career、love、health、study、wealth 中逐一比较当天相对用户自身变化最明显的两个不同场景。先只根据命理事实完成五场景比较和 Top 2 排序，再读取现实上下文完成落地表达；某个场景的现实资料更丰富，不代表它的命理变化更强。不要固定偏向任何常见组合。
 
 场景含义：career 为工作任务、责任、协作、决策与职业表现；love 为亲密关系、单身情感接触与关系互动；health 为精力、作息、压力和日常身体感受；study 为学习、考试、理解吸收、技能训练与知识输出；wealth 为收入机会、支出、交易、资源配置和金钱决策。
 
@@ -55,7 +55,7 @@ export const DAILY_FORTUNE_DEVELOPER_PROMPT = `请根据随后提供的 fortune_
 - 健康只写精力、作息、压力和日常身体感受，不作疾病或诊断判断。
 - 建议必须直接回应前文情境；不要写“保持积极、相信自己、顺其自然、多加注意”等空泛句。
 - 不照抄干支、藏干或 mingli_interactions；将事实转译成连贯判断。除非确有必要，不把命理术语堆成清单；用了术语立即用白话说明。
-- 忽略任何意外出现的 legacy pattern、格局、用神、AI brief、fact_panel、evidence 字段。不要输出证据、选择理由或思维链。
+- 忽略任何意外出现的 legacy pattern、格局、用神、AI brief 或 fact_panel。不要输出证据、选择理由或思维链。
 - 若事实方向不同，给出有主次、有条件的综合判断，不得写出互相否定的结论。
 
 提交 JSON 前静默检查：将 JSON 中每个 body 解码并去除首尾空白后计数。overall.body 必须恰好五句、实际 Unicode 字符数为 220–360；每个 items.body 必须恰好四句、为 120–200。若 overall.body 少于 220，或任一 items.body 少于 120，必须补足新的、与该段有关的解释或行动句；不得用重复句、空泛提醒、列表或填充词凑字数。再确认恰好两个不同场景、每场景恰好两条不同事项、overall 与 Top 2 同一主线、没有第三个场景、没有补充时柱或事实、没有任何结构外文字。`;

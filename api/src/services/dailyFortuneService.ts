@@ -446,7 +446,6 @@ export function buildDailyFortuneFactPackage(
     mingli_interactions: buildMingliInteractions(
       mingliFacts,
       timeline.timing_interactions,
-      pillars,
     ),
     user_context: buildDailyFortuneUserContext(profile, user),
   };
@@ -572,7 +571,6 @@ function buildHiddenStems(value: unknown, label: string): DailyFortuneHiddenStem
 function buildMingliInteractions(
   mingliFacts: Record<string, unknown>,
   timingInteractions: unknown,
-  pillars: DailyFortunePillar[],
 ): DailyFortuneMingliInteractions {
   const ruleVersion = requiredFactText(mingliFacts.rule_version, '命理作用规则版本');
   if (!Array.isArray(mingliFacts.natal_interactions)) {
@@ -583,16 +581,14 @@ function buildMingliInteractions(
   }
   return {
     rule_version: ruleVersion,
-    natal: filterInteractionsForPillars(mingliFacts.natal_interactions, pillars),
-    timing: filterInteractionsForPillars(timingInteractions, pillars),
+    natal: compactInteractions(mingliFacts.natal_interactions),
+    timing: compactInteractions(timingInteractions),
   };
 }
 
-function filterInteractionsForPillars(
+function compactInteractions(
   items: unknown[],
-  pillars: DailyFortunePillar[],
 ): DailyFortuneMingliInteraction[] {
-  const validPositions = new Set(pillars.map((pillar) => pillar.position));
   return items
     .map((item) => {
       if (!isMingliInteraction(item)) {
@@ -600,7 +596,6 @@ function filterInteractionsForPillars(
       }
       return item;
     })
-    .filter((item) => interactionUsesExistingPillars(item, validPositions))
     .map(compactInteraction)
     .sort((left, right) => left.id.localeCompare(right.id));
 }
@@ -631,11 +626,9 @@ function compactInteraction(value: unknown): DailyFortuneMingliInteraction {
     transform_element: nullableFactText(record.transform_element),
     center_branch: nullableFactText(record.center_branch),
     activated_palaces: stringArray(record.activated_palaces, '命理作用激活宫位'),
-    domain_candidates: stringArray(record.domain_candidates, '命理作用候选领域'),
     target_part: targetPartForRelation(requiredFactText(record.relation, '命理作用 relation')),
     intensity: requiredFiniteNumber(record.intensity, '命理作用强度'),
     time_horizon: requiredFactText(record.time_horizon, '命理作用时间范围'),
-    evidence: requiredFactText(record.evidence, '命理作用证据'),
     adjacent: requiredBoolean(record.adjacent, '命理作用相邻标记'),
     full_match: requiredBoolean(record.full_match, '命理作用完整标记'),
     missing_branch: nullableFactText(record.missing_branch),
@@ -694,20 +687,6 @@ function requiredBoolean(value: unknown, label: string): boolean {
     throw new DailyFortuneFactError(`${label} 无效`);
   }
   return value;
-}
-
-function interactionUsesExistingPillars(
-  value: unknown,
-  validPositions: Set<DailyFortunePillarPosition>,
-): boolean {
-  const record = asRecord(value);
-  const participants = Array.isArray(record.participants) ? record.participants : [];
-  return participants.every((rawParticipant) => {
-    const participant = asRecord(rawParticipant);
-    return participant.type !== 'natal_pillar'
-      || (typeof participant.pillar === 'string'
-        && validPositions.has(participant.pillar as DailyFortunePillarPosition));
-  });
 }
 
 function buildDayContext(

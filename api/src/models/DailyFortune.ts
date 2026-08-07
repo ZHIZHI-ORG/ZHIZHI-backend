@@ -1,7 +1,7 @@
 import type { DailyFortuneUserContext } from './DailyFortuneContext';
 
-export const DAILY_FORTUNE_CONTRACT_VERSION = 'daily_fortune_ai_first_v2' as const;
-export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v6' as const;
+export const DAILY_FORTUNE_CONTRACT_VERSION = 'daily_fortune_ai_first_v3' as const;
+export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v7' as const;
 
 export const DAILY_FORTUNE_SCENES = [
   'career',
@@ -116,11 +116,9 @@ export interface DailyFortuneMingliInteraction {
   transform_element: string | null;
   center_branch: string | null;
   activated_palaces: string[];
-  domain_candidates: string[];
   target_part: 'stem' | 'branch';
   intensity: number;
   time_horizon: string;
-  evidence: string;
   adjacent: boolean;
   full_match: boolean;
   missing_branch: string | null;

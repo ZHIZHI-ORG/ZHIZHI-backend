@@ -10,7 +10,7 @@ const {
 
 function facts(pillars: Array<Record<string, unknown>>) {
   return {
-    contract_version: 'daily_fortune_ai_first_v2',
+    contract_version: 'daily_fortune_ai_first_v3',
     effective_date: '2026-07-23',
     timezone: 'Asia/Hong_Kong',
     day_boundary: 'zi_chu_23_local',
@@ -114,11 +114,9 @@ function interaction(id: string, scope: string, relation: string, fullMatch: boo
     transform_element: relation === 'branch_arch_harmony' ? '木' : null,
     center_branch: relation === 'branch_arch_harmony' ? '卯' : null,
     activated_palaces: ['day'],
-    domain_candidates: ['career'],
     target_part: 'branch',
     intensity: 0.8,
     time_horizon: scope === 'natal' ? 'long_term' : 'day',
-    evidence: '测试用命理作用证据',
     adjacent: false,
     full_match: fullMatch,
     missing_branch: relation === 'branch_arch_harmony' ? '亥' : null,
@@ -242,6 +240,7 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.systemPrompt.includes('user_context 不是命理依据'));
     assert.ok(capturedRequest.userPrompt.includes('branch_arch_harmony'));
     assert.ok(capturedRequest.systemPrompt.includes('MBTI 只影响措辞、行动方式'));
+    assert.ok(capturedRequest.userPrompt.includes('先只根据命理事实完成五场景比较'));
     assert.ok(capturedRequest.userPrompt.includes('恰好五个完整中文句子'));
     assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));
     assert.ok(capturedRequest.userPrompt.includes('少于 220 个字符的内容无效'));
@@ -252,6 +251,8 @@ async function main(): Promise<void> {
       threePillars,
       '三柱事实必须原样进入 prompt'
     );
+    assert.equal(capturedRequest.userPrompt.includes('domain_candidates'), false);
+    assert.equal(capturedRequest.userPrompt.includes('测试用命理作用证据'), false);
 
     const generatedWithGeminiThoughtMetadata = await generateDailyFortuneWithAi(
       facts(threePillars),

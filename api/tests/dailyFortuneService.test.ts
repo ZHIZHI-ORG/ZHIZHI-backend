@@ -172,10 +172,8 @@ function interaction(input: {
     transform_element: input.relation === 'branch_arch_harmony' ? '木' : null,
     center_branch: input.relation === 'branch_arch_harmony' ? '卯' : null,
     activated_palaces: ['day'],
-    domain_candidates: ['career'],
     intensity: 0.8,
     time_horizon: input.scope === 'natal' ? 'long_term' : 'day',
-    evidence: '不应进入 AI 的冗长证据',
     adjacent: false,
     full_match: input.full_match ?? true,
     missing_branch: input.missing_branch ?? null,
@@ -234,12 +232,14 @@ function engineBundle(pillarCount: 3 | 4 = 3, context: Record<string, unknown> =
             missing_branch: '巳',
             seen_stem: '甲',
           }),
-          interaction({
-            id: 'drop-internal-hour',
-            scope: 'natal',
-            relation: 'branch_clash',
-            participants: [natalHour],
-          }),
+          ...(pillarCount === 4
+            ? [interaction({
+                id: 'hour-relation',
+                scope: 'natal',
+                relation: 'branch_clash',
+                participants: [natalHour],
+              })]
+            : []),
         ],
       },
     },
@@ -291,7 +291,7 @@ function artifactRow(
     lease_expires_at: null,
     attempt_count: 1,
     next_attempt_at: null,
-    fact_contract_version: 'daily_fortune_ai_first_v2',
+    fact_contract_version: 'daily_fortune_ai_first_v3',
     fact_hash: 'fact-hash',
     fact_snapshot_json: null,
     day_context_json: {
@@ -301,7 +301,7 @@ function artifactRow(
       liuri: '己丑',
     },
     content_json: content,
-    prompt_version: 'daily_fortune_prompt_v5',
+    prompt_version: 'daily_fortune_prompt_v7',
     output_schema_version: 'daily_fortune_output_v1',
     generation_config_version: 'daily_fortune_gemini_v2',
     model_id: 'gemini-test-pinned',
@@ -335,7 +335,7 @@ async function main(): Promise<void> {
     );
   });
 
-  await run('三柱只传实际三柱、完整藏干和不含 fallback 的关系层', () => {
+  await run('三柱原样传递实际三柱、完整藏干和对应关系层', () => {
     const facts = buildDailyFortuneFactPackage(
       engineBundle(3),
       '2026-07-23',
@@ -368,11 +368,9 @@ async function main(): Promise<void> {
       transform_element: '木',
       center_branch: '卯',
       activated_palaces: ['day'],
-      domain_candidates: ['career'],
       target_part: 'branch',
       intensity: 0.8,
       time_horizon: 'long_term',
-      evidence: '不应进入 AI 的冗长证据',
       adjacent: false,
       full_match: false,
       missing_branch: '巳',
@@ -392,8 +390,8 @@ async function main(): Promise<void> {
         Boolean(hidden.stem) && Boolean(hidden.ten_god) && Boolean(hidden.element)
       )));
     }
-    assert.equal(JSON.stringify(facts).includes('冗长证据'), true);
-    assert.equal(JSON.stringify(facts).includes('domain_candidates'), true);
+    assert.equal(JSON.stringify(facts).includes('evidence'), false);
+    assert.equal(JSON.stringify(facts).includes('domain_candidates'), false);
     assert.equal(facts.mingli_interactions.timing[0].target_part, 'branch');
     assert.equal(facts.timing.liuyue.start_date, '2026-07-07');
     assert.equal(facts.timing.liuyue.end_date, '2026-08-07');
@@ -415,6 +413,10 @@ async function main(): Promise<void> {
       'day',
       'hour',
     ]);
+    assert.deepEqual(
+      facts.mingli_interactions.natal.map((item) => item.id),
+      ['hour-relation', 'keep-day'],
+    );
   });
 
   await run('童限没有真实地支时不伪造藏干', () => {
