@@ -233,7 +233,8 @@ async function main(): Promise<void> {
     assert.equal(capturedRequest.model, 'gemini-test-pinned');
     assert.equal(capturedRequest.timeoutMs, 90000);
     assert.equal(capturedRequest.generationConfig.candidateCount, 1);
-    assert.equal(capturedRequest.generationConfig.maxOutputTokens, 4096);
+    assert.equal(capturedRequest.generationConfig.maxOutputTokens, 16384);
+    assert.equal(capturedRequest.generationConfig.thinkingConfig.thinkingLevel, 'medium');
     assert.equal(capturedRequest.generationConfig.temperature, 0.2);
     assert.equal(capturedRequest.generationConfig.responseMimeType, 'application/json');
     assert.ok(capturedRequest.systemPrompt.includes('不猜测、不补齐、不暗示时柱'));
@@ -241,6 +242,11 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.userPrompt.includes('branch_arch_harmony'));
     assert.ok(capturedRequest.systemPrompt.includes('MBTI 只能在 Top 2 已完全确定后'));
     assert.ok(capturedRequest.userPrompt.includes('先只根据命理事实完成五场景比较'));
+    assert.ok(capturedRequest.userPrompt.includes('不可混写事实层级'));
+    assert.ok(capturedRequest.userPrompt.includes('不得自造“财官交战”'));
+    assert.ok(capturedRequest.userPrompt.includes('如果今天涉及……'));
+    assert.ok(capturedRequest.systemPrompt.includes('直接展示给普通用户'));
+    assert.ok(capturedRequest.userPrompt.includes('任何干支或十神术语'));
     assert.ok(capturedRequest.userPrompt.includes('恰好五个完整中文句子'));
     assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));
     assert.ok(capturedRequest.userPrompt.includes('少于 220 个字符的内容无效'));
@@ -302,14 +308,12 @@ async function main(): Promise<void> {
 
     const extraAction = validContent() as any;
     extraAction.overall.action = '不允许出现的字段';
-    await expectAiError(
-      generateDailyFortuneWithAi(facts(threePillars), {
-        async generate() {
-          return providerResponse(extraAction);
-        },
-      }),
-      'invalid_schema'
-    );
+    const extraActionResult = await generateDailyFortuneWithAi(facts(threePillars), {
+      async generate() {
+        return providerResponse(extraAction);
+      },
+    });
+    assert.equal((extraActionResult.overall as any).action, undefined);
 
     const oneItem = validContent();
     oneItem.selected_scenes[0].items = [oneItem.selected_scenes[0].items[0]] as any;
@@ -321,6 +325,35 @@ async function main(): Promise<void> {
       }),
       'invalid_schema'
     );
+
+    const shortItemBody = validContent();
+    shortItemBody.selected_scenes[0].items[0].body = '文';
+    const shortItemResult = await generateDailyFortuneWithAi(facts(threePillars), {
+      async generate() {
+        return providerResponse(shortItemBody);
+      },
+    });
+    assert.equal(shortItemResult.selected_scenes[0].items[0].body, '文');
+
+    const emptyItemBody = validContent();
+    emptyItemBody.selected_scenes[0].items[0].body = '   ';
+    await expectAiError(
+      generateDailyFortuneWithAi(facts(threePillars), {
+        async generate() {
+          return providerResponse(emptyItemBody);
+        },
+      }),
+      'invalid_schema'
+    );
+
+    const longSceneHeadline = validContent();
+    longSceneHeadline.selected_scenes[0].headline = repeat('标', 30);
+    const longHeadlineResult = await generateDailyFortuneWithAi(facts(threePillars), {
+      async generate() {
+        return providerResponse(longSceneHeadline);
+      },
+    });
+    assert.equal(longHeadlineResult.selected_scenes[0].headline.length, 30);
 
     await expectAiError(
       generateDailyFortuneWithAi(facts(threePillars), {

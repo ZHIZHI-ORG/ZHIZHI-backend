@@ -29,7 +29,7 @@ import {
 } from '../utils/dailyFortuneAi';
 import { NotFoundError, ValidationError } from '../utils/errors';
 
-const GENERATION_CONFIG_VERSION = 'daily_fortune_gemini_v2';
+const GENERATION_CONFIG_VERSION = 'daily_fortune_gemini_v6';
 const OUTPUT_SCHEMA_VERSION = 'daily_fortune_output_v1';
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const DEFAULT_JOIN_RETRY_MS = 1_000;

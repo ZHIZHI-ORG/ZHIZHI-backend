@@ -1,7 +1,7 @@
 import type { DailyFortuneUserContext } from './DailyFortuneContext';
 
 export const DAILY_FORTUNE_CONTRACT_VERSION = 'daily_fortune_ai_first_v3' as const;
-export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v7' as const;
+export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v9' as const;
 
 export const DAILY_FORTUNE_SCENES = [
   'career',
