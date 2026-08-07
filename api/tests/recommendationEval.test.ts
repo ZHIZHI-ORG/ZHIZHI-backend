@@ -91,7 +91,7 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
     effective_date: '2026-08-08',
     timezone: 'Asia/Hong_Kong',
     fortune_facts: {
-      contract_version: 'daily_fortune_ai_first_v2',
+      contract_version: 'daily_fortune_ai_first_v3',
       effective_date: '2026-08-08',
       timezone: 'Asia/Hong_Kong',
       natal: { pillars: pillars(item.unknownHour) },

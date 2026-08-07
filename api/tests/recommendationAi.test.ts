@@ -22,7 +22,7 @@ function recommendationInput() {
     // passed verbatim to Gemini, while available_fact_refs is the traceable
     // citation set that the server can mechanically validate.
     fortune_facts: {
-      contract_version: 'daily_fortune_ai_first_v2',
+      contract_version: 'daily_fortune_ai_first_v3',
       natal: { pillars: [{ position: 'day', gan_zhi: '乙酉' }] },
       mingli_interactions: { natal: [] },
     },

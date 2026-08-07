@@ -239,7 +239,7 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.systemPrompt.includes('不猜测、不补齐、不暗示时柱'));
     assert.ok(capturedRequest.systemPrompt.includes('user_context 不是命理依据'));
     assert.ok(capturedRequest.userPrompt.includes('branch_arch_harmony'));
-    assert.ok(capturedRequest.systemPrompt.includes('MBTI 只影响措辞、行动方式'));
+    assert.ok(capturedRequest.systemPrompt.includes('MBTI 只能在 Top 2 已完全确定后'));
     assert.ok(capturedRequest.userPrompt.includes('先只根据命理事实完成五场景比较'));
     assert.ok(capturedRequest.userPrompt.includes('恰好五个完整中文句子'));
     assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));

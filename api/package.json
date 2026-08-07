@@ -26,6 +26,7 @@
     "test:auth-infra": "ts-node tests/authInfrastructure.test.ts",
     "test:commerce": "ts-node tests/commerceService.test.ts",
     "test:daily-fortune": "ts-node tests/dailyFortuneAi.test.ts && ts-node tests/dailyFortuneBaziBoundary.test.ts && ts-node tests/dailyFortuneService.test.ts && ts-node tests/dailyFortuneRoute.test.ts",
+    "eval:daily-fortune": "ts-node scripts/run-daily-fortune-eval.ts",
     "test:recommendations": "ts-node tests/recommendationAi.test.ts && ts-node tests/recommendationMigration.test.ts && ts-node tests/recommendationTimeWindows.test.ts && ts-node tests/recommendationService.test.ts && ts-node tests/recommendationRoute.test.ts && ts-node tests/recommendationUserContext.test.ts && ts-node tests/recommendationEval.test.ts",
     "deploy": "vercel --prod",
     "type-check": "tsc --noEmit"

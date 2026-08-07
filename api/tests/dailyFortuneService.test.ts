@@ -16,6 +16,9 @@ const {
   resolveDailyFortuneDate,
 } = require('../src/services/dailyFortuneService') as typeof import('../src/services/dailyFortuneService');
 const { DailyFortuneAiError } = require('../src/utils/dailyFortuneAi') as typeof import('../src/utils/dailyFortuneAi');
+const {
+  dailyFortunePromptEvalCases,
+} = require('../evals/dailyFortunePromptCases') as typeof import('../evals/dailyFortunePromptCases');
 
 const now = new Date('2026-07-23T14:30:00.000Z');
 
@@ -312,6 +315,45 @@ function artifactRow(
 }
 
 async function main(): Promise<void> {
+  await run('四个 Prompt 评估命例复用生产命理引擎并满足 V3 事实合同', () => {
+    assert.equal(dailyFortunePromptEvalCases.length, 4);
+    for (const item of dailyFortunePromptEvalCases) {
+      const serializedFacts = JSON.stringify(item.facts);
+      assert.equal(item.facts.contract_version, 'daily_fortune_ai_first_v3');
+      assert.equal(serializedFacts.includes('domain_candidates'), false);
+      assert.equal(serializedFacts.includes('evidence'), false);
+      const relationTypes = new Set([
+        ...item.facts.mingli_interactions.natal,
+        ...item.facts.mingli_interactions.timing,
+      ].map((interaction) => interaction.relation));
+      for (const relation of item.required_relations) {
+        assert.ok(relationTypes.has(relation), `${item.id} 缺少 ${relation}`);
+      }
+      for (const relation of item.forbidden_relations) {
+        assert.equal(relationTypes.has(relation), false, `${item.id} 不应包含 ${relation}`);
+      }
+      for (const factPillar of [
+        ...item.facts.natal.pillars,
+        item.facts.timing.dayun,
+        item.facts.timing.liunian,
+        item.facts.timing.liuyue,
+        item.facts.timing.liuri,
+      ]) {
+        assert.ok(factPillar.hidden_stems.length > 0, `${item.id} 缺少藏干`);
+        assert.ok(factPillar.hidden_stems.every((hidden) => (
+          Boolean(hidden.stem) && Boolean(hidden.ten_god) && Boolean(hidden.element)
+        )), `${item.id} 藏干结构不完整`);
+      }
+    }
+    const comparisonCases = dailyFortunePromptEvalCases.filter((item) => (
+      item.comparison_group === 'study-context-neutrality'
+    ));
+    assert.equal(comparisonCases.length, 2);
+    const withoutContext = { ...comparisonCases[0].facts, user_context: null };
+    const withContext = { ...comparisonCases[1].facts, user_context: null };
+    assert.deepEqual(withContext, withoutContext, '对照案例除 user_context 外必须完全相同');
+  });
+
   await run('子初 23:00 按请求时区切换有效日期', () => {
     assert.deepEqual(
       resolveDailyFortuneDate(

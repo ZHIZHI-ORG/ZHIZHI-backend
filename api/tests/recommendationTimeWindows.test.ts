@@ -133,7 +133,7 @@ function currentTiming(gan_zhi: string, extra: Record<string, unknown>) {
 
 function currentFacts(): DailyFortuneFactPackage {
   return {
-    contract_version: 'daily_fortune_ai_first_v2',
+    contract_version: 'daily_fortune_ai_first_v3',
     effective_date: effectiveDate,
     timezone: 'Asia/Hong_Kong',
     day_boundary: 'zi_chu_23_local',
