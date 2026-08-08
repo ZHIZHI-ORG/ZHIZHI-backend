@@ -268,8 +268,7 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
 
   // 4. OTP 只验证邮箱并创建 session，不会保存注册请求里的密码。
   //    必须显式使用刚验证通过的用户 session 设置密码，密码登录才能成立。
-  const userClient = createUserSupabaseClient(authData.session.access_token);
-  const { error: passwordError } = await userClient.auth.updateUser({ password });
+  const { error: passwordError } = await authClient.auth.updateUser({ password });
 
   if (passwordError) {
     await supabase.auth.admin.deleteUser(authData.user.id);
@@ -578,9 +577,8 @@ export async function resetPassword(input: ResetPasswordInput): Promise<void> {
     throw new ValidationError('验证码错误或已过期');
   }
 
-  // 用用户自己的 session 更新密码（而非 service role，保证安全边界）
-  const userClient = createUserSupabaseClient(otpData.session.access_token);
-  const { error: updateError } = await userClient.auth.updateUser({
+  // 复用刚完成 OTP 验证的客户端；该客户端已持有用户 session。
+  const { error: updateError } = await authClient.auth.updateUser({
     password: new_password,
   });
 

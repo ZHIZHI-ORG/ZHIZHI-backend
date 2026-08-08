@@ -7,18 +7,16 @@ process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key'
 const supabaseModule = require('../src/database/supabase');
 const { supabase, checkDatabaseHealth } = supabaseModule;
 const { userRepository } = require('../src/database/repositories/UserRepository');
-const { registerUser } = require('../src/services/authService');
+const { registerUser, resetPassword } = require('../src/services/authService');
 const { formatError, ServiceUnavailableError } = require('../src/utils/errors');
 
 const originalFrom = supabase.from.bind(supabase);
 const originalCreateServiceSupabaseClient = supabaseModule.createServiceSupabaseClient;
-const originalCreateUserSupabaseClient = supabaseModule.createUserSupabaseClient;
 const originalUserCreate = userRepository.create.bind(userRepository);
 
 function restoreMocks(): void {
   supabase.from = originalFrom;
   supabaseModule.createServiceSupabaseClient = originalCreateServiceSupabaseClient;
-  supabaseModule.createUserSupabaseClient = originalCreateUserSupabaseClient;
   userRepository.create = originalUserCreate;
 }
 
@@ -101,19 +99,12 @@ async function main(): Promise<void> {
             error: null,
           };
         },
+        async updateUser(input: { password?: string }) {
+          persistedPassword = input.password;
+          return { data: {}, error: null };
+        },
       },
     });
-    supabaseModule.createUserSupabaseClient = (token: string) => {
-      assert.equal(token, accessToken);
-      return {
-        auth: {
-          async updateUser(input: { password?: string }) {
-            persistedPassword = input.password;
-            return { data: {}, error: null };
-          },
-        },
-      };
-    };
     userRepository.create = async (input: {
       id: string;
       email: string;
@@ -139,6 +130,39 @@ async function main(): Promise<void> {
     });
 
     assert.equal(result.user.is_email_verified, true);
+  });
+
+  await run('password recovery updates the password on the OTP-verified client', async () => {
+    const password = 'RecoveredPass123!';
+    let persistedPassword: string | undefined;
+
+    supabaseModule.createServiceSupabaseClient = () => ({
+      auth: {
+        async verifyOtp() {
+          return {
+            data: {
+              session: {
+                access_token: 'recovery-access-token',
+                refresh_token: 'recovery-refresh-token',
+              },
+            },
+            error: null,
+          };
+        },
+        async updateUser(input: { password?: string }) {
+          persistedPassword = input.password;
+          return { data: {}, error: null };
+        },
+      },
+    });
+
+    await resetPassword({
+      email: 'password-recovery-test@zhizhi.app',
+      verification_code: '654321',
+      new_password: password,
+    });
+
+    assert.equal(persistedPassword, password);
   });
 
   console.log('Auth infrastructure tests passed');
