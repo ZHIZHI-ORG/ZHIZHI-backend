@@ -226,9 +226,10 @@ export async function sendVerificationCode(input: SendCodeInput): Promise<void> 
  * 后端处理顺序：
  *   1. 按 INVITE_CODE_REQUIRED 判断是否强制校验邀请码
  *   2. 用验证码 + 邮箱向 Supabase 完成注册（verifyOtp 同时创建 auth 用户）
- *   3. 在业务 users 表创建用户记录
- *   4. 有有效邀请码时消耗邀请码（写使用记录 + 自增次数）
- *   5. 返回 token
+ *   3. 用 OTP 返回的用户 session 设置密码
+ *   4. 在业务 users 表创建用户记录
+ *   5. 有有效邀请码时消耗邀请码（写使用记录 + 自增次数）
+ *   6. 返回 token
  *
  * @param input - { email, password, verification_code, invitation_code?, display_name? }
  * @returns LoginResponse - { user, access_token, refresh_token }
@@ -265,13 +266,25 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
     throw new ValidationError('验证码错误或已过期，请重新获取');
   }
 
-  // 4. 在业务 users 表创建记录
+  // 4. OTP 只验证邮箱并创建 session，不会保存注册请求里的密码。
+  //    必须显式使用刚验证通过的用户 session 设置密码，密码登录才能成立。
+  const userClient = createUserSupabaseClient(authData.session.access_token);
+  const { error: passwordError } = await userClient.auth.updateUser({ password });
+
+  if (passwordError) {
+    await supabase.auth.admin.deleteUser(authData.user.id);
+    throwIfAuthUpstreamUnavailable(passwordError, 'register-set-password');
+    throw new Error(`注册失败，请稍后重试: ${passwordError.message}`);
+  }
+
+  // 5. 在业务 users 表创建记录。OTP 已验证邮箱，因此同步保存已验证状态。
   let user;
   try {
     user = await userRepository.create({
       id: authData.user.id,
       email,
       display_name,
+      is_email_verified: true,
     });
   } catch (dbError) {
     // users 表创建失败：清理已创建的 auth 用户，保证数据一致性
@@ -279,7 +292,7 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
     throw new Error(`注册失败，请稍后重试: ${dbError instanceof Error ? dbError.message : ''}`);
   }
 
-  // 5. 消耗邀请码（写关系记录 + 次数自增）
+  // 6. 消耗邀请码（写关系记录 + 次数自增）
   //    邀请关系是增长追溯的核心账本，失败时回滚新账号，避免“注册成功但查不到邀请人”。
   if (inviteCode) {
     try {
@@ -294,7 +307,7 @@ export async function registerUser(input: RegisterInput): Promise<LoginResponse>
     }
   }
 
-  // 6. 返回用户信息 + Token
+  // 7. 返回用户信息 + Token
   return {
     user: userRepository.toProfile(user),
     access_token: authData.session.access_token,
@@ -493,7 +506,12 @@ export async function socialLogin(input: SocialLoginInput): Promise<SocialLoginR
 
   let newUser;
   try {
-    newUser = await userRepository.create({ id: authData.user.id, email, display_name });
+    newUser = await userRepository.create({
+      id: authData.user.id,
+      email,
+      display_name,
+      is_email_verified: true,
+    });
   } catch (dbError) {
     await supabase.auth.admin.deleteUser(authData.user.id);
     throw new Error(`第三方注册失败: ${dbError instanceof Error ? dbError.message : ''}`);

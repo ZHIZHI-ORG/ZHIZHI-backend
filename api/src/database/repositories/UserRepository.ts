@@ -73,7 +73,12 @@ export class UserRepository {
    * @param input - 用户数据
    * @returns User
    */
-  async create(input: { id: string; email: string; display_name?: string }): Promise<User> {
+  async create(input: {
+    id: string;
+    email: string;
+    display_name?: string;
+    is_email_verified?: boolean;
+  }): Promise<User> {
     const { data, error } = await supabase
       .from(this.tableName)
       .insert({
@@ -81,7 +86,7 @@ export class UserRepository {
         email: input.email,
         display_name: input.display_name || null,
         is_active: true,
-        is_email_verified: false,
+        is_email_verified: input.is_email_verified ?? false,
         bazi_profile_count: 0,
       })
       .select()
