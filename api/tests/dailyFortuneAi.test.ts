@@ -246,10 +246,14 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.userPrompt.includes('不得自造“财官交战”'));
     assert.ok(capturedRequest.userPrompt.includes('如果今天涉及……'));
     assert.ok(capturedRequest.systemPrompt.includes('直接展示给普通用户'));
+    assert.ok(capturedRequest.systemPrompt.includes('第一句会单独成为首页按钮文字'));
     assert.ok(capturedRequest.userPrompt.includes('任何干支或十神术语'));
     assert.ok(capturedRequest.userPrompt.includes('恰好五个完整中文句子'));
     assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));
     assert.ok(capturedRequest.userPrompt.includes('少于 220 个字符的内容无效'));
+    assert.ok(capturedRequest.userPrompt.includes('第一句会被首页单独展示'));
+    assert.ok(capturedRequest.userPrompt.includes('18–24 个中文字符的完整预览句'));
+    assert.ok(capturedRequest.userPrompt.includes('不得擅自写“午后”'));
     assert.ok(capturedRequest.userPrompt.startsWith(DAILY_FORTUNE_DEVELOPER_PROMPT));
     assert.ok(capturedRequest.systemPrompt.startsWith(DAILY_FORTUNE_SYSTEM_PROMPT));
     assert.deepEqual(
