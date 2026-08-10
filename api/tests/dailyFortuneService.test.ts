@@ -304,7 +304,7 @@ function artifactRow(
       liuri: '己丑',
     },
     content_json: content,
-    prompt_version: 'daily_fortune_prompt_v10',
+    prompt_version: 'daily_fortune_prompt_v11',
     output_schema_version: 'daily_fortune_output_v1',
     generation_config_version: 'daily_fortune_gemini_v6',
     model_id: 'gemini-test-pinned',

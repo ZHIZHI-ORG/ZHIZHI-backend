@@ -252,7 +252,9 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));
     assert.ok(capturedRequest.userPrompt.includes('少于 220 个字符的内容无效'));
     assert.ok(capturedRequest.userPrompt.includes('第一句会被首页单独展示'));
-    assert.ok(capturedRequest.userPrompt.includes('18–24 个中文字符的完整预览句'));
+    assert.ok(capturedRequest.userPrompt.includes('18–22 个 Unicode 字符（标点计入）的完整预览句'));
+    assert.ok(capturedRequest.userPrompt.includes('不得出现“需要、需、建议、应该、可以、适合、值得、警惕、留意”'));
+    assert.ok(capturedRequest.userPrompt.includes('可能临时接到新任务，原定安排随之改变。'));
     assert.ok(capturedRequest.userPrompt.includes('不得擅自写“午后”'));
     assert.ok(capturedRequest.userPrompt.startsWith(DAILY_FORTUNE_DEVELOPER_PROMPT));
     assert.ok(capturedRequest.systemPrompt.startsWith(DAILY_FORTUNE_SYSTEM_PROMPT));
