@@ -126,7 +126,7 @@ export const DAILY_FORTUNE_RESPONSE_SCHEMA = {
 
 // 首页日运按日缓存，首次生成允许完整完成，不以即时返回换取截断或重试。
 const DEFAULT_TIMEOUT_MS = 90_000;
-const DEFAULT_MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024;
+const DEFAULT_MAX_PROVIDER_RESPONSE_BYTES = 256 * 1024;
 const MAX_CONTENT_JSON_BYTES = 32 * 1024;
 export type DailyFortuneAiErrorCode =
   | 'configuration'
@@ -161,7 +161,7 @@ export class DailyFortuneAiError extends Error {
 export interface DailyFortuneAiTransportRequest {
   model: string;
   timeoutMs: number;
-  /** Endpoint-specific envelope limit; daily fortune keeps the 64 KB default. */
+  /** Endpoint-specific envelope limit; includes Gemini thinking metadata. */
   maxProviderResponseBytes?: number;
   systemPrompt: string;
   userPrompt: string;

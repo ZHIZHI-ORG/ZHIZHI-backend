@@ -449,7 +449,7 @@ async function main(): Promise<void> {
     const tooLargeTransport = new GeminiDailyFortuneTransport(
       async () => new Response('', {
         status: 200,
-        headers: { 'content-length': String((64 * 1024) + 1) },
+        headers: { 'content-length': String((256 * 1024) + 1) },
       })
     );
     await expectAiError(
