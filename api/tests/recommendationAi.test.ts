@@ -281,6 +281,32 @@ async function main(): Promise<void> {
     assert.ok(generated.generation_metrics.input_json_bytes > 0);
     assert.ok(generated.generation_metrics.request_bytes > 0);
 
+    // Daily fortune intentionally supports a longer timeout than recommendations.
+    // A valid daily-fortune setting must never leak into the recommendation client.
+    process.env.DAILY_FORTUNE_AI_TIMEOUT_MS = '120000';
+    delete process.env.RECOMMENDATION_AI_TIMEOUT_MS;
+    let isolatedTimeoutRequest: any;
+    const isolatedIds = Array.from(
+      { length: 30 },
+      (_, index) => `isolated-timeout-${index + 1}`,
+    );
+    await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      {
+        async generate(request: any) {
+          isolatedTimeoutRequest = request;
+          return providerResponse(validContent());
+        },
+      },
+      () => isolatedIds.shift() as string,
+    );
+    assert.equal(
+      isolatedTimeoutRequest.timeoutMs,
+      90_000,
+      'recommendations use their own default when only the daily-fortune timeout is configured',
+    );
+    delete process.env.DAILY_FORTUNE_AI_TIMEOUT_MS;
+
     // This intentionally contains wording that the prompt tells the model not
     // to produce. It is accepted here to prove that the server does not add a
     // keyword blacklist or a second semantic judge after the model response.

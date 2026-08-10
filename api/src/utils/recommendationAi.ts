@@ -310,8 +310,10 @@ function readRequiredModel(): string {
 }
 
 function readTimeoutMs(): number {
-  const raw = process.env.RECOMMENDATION_AI_TIMEOUT_MS?.trim()
-    || process.env.DAILY_FORTUNE_AI_TIMEOUT_MS?.trim();
+  // Recommendation and daily-fortune requests have different validated
+  // timeout ranges. Sharing the daily value can make a valid daily setting
+  // reject every recommendation before the provider is called.
+  const raw = process.env.RECOMMENDATION_AI_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_TIMEOUT_MS;
   if (!/^\d+$/.test(raw)) {
     throw new DailyFortuneAiError(
