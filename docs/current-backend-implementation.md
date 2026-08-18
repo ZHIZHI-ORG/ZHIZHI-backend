@@ -178,7 +178,7 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 
 ### 4.6 StoreKit、会员和积分
 
-`commerceService.ts` 对商品 ID、交易 ID、original transaction ID、app account token 和 JWS payload 做一致性检查，并以 transaction/idempotency key 防止重复入账。配置 Apple 根证书和 bundle ID 时使用 Apple Server Library 验签；未配置且 `APPLE_IAP_REQUIRE_SIGNED_VERIFICATION` 不是 `true` 时会退回到未验签 payload 解码。生产发布必须通过环境变量强制验签并执行真实交易验收。
+`commerceService.ts` 对商品 ID、交易 ID、original transaction ID、app account token、购买时间和 JWS payload 做一致性检查。生产运行时即使漏配开关也会强制 Apple Server Library 验签；开发/测试环境只有在未要求严格验签时才允许未验签 payload 解码。`020_commerce_transaction_atomicity.sql` 把交易记录与会员/积分交付收进同一数据库事务，重复请求会幂等返回或修复旧的半完成交付，积分退款会按当前余额幂等扣回。两个 `SECURITY DEFINER` 商业 RPC 都只授权 service role，不能由 anon/authenticated 直接加减积分。
 
 ## 5. 数据库结构与迁移顺序
 
@@ -200,6 +200,7 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 | `supabase/migrations/013_recommendation_engine.sql` | `recommendation_batches`、`recommendation_events`、无内容的 provider-attempt ledger、single-flight/complete/release/event/preference-snapshot RPC、revision/时区槽位、RLS 与不可变 READY 约束 | RecommendationRepository/recommendation service/iOS Insights V1 |
 | `supabase/migrations/014_recommendation_candidate_pool.sql` | 兼容旧 6+3 READY，新增 24 张不可变候选池、8+4 展示合同、池续批、成功调用 metrics、卡片时间窗口事件派生及 90 天窗口记忆 RPC | RecommendationRepository/recommendation service/iOS Insights V1 |
 | `supabase/migrations/015_recommendation_deck_only_pool.sql` | 保留旧 6+3/8+4 可审计数据，新增 30 张根池、10+0 三批父子链、V3 finalize/续批 RPC，并从两类推荐记忆中排除历史 center 事件 | RecommendationRepository/recommendation service/iOS Insights V1 |
+| `supabase/migrations/020_commerce_transaction_atomicity.sql` | StoreKit 交易与权益原子交付、积分退款幂等处理、商业 RPC service-role 限权 | commerce service/repository |
 
 源码不能判断远端迁移是否完成。部署验收必须读取目标项目的 migration/table/function 状态，并对 RLS 与 service-role 行为分别验证。
 
@@ -228,7 +229,7 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 | `APPLE_IAP_ENVIRONMENT` | Optional | 默认 Sandbox |
 | `APPLE_IAP_APP_APPLE_ID` | Optional by Apple environment | 未配置时传 undefined |
 | `APPLE_IAP_ROOT_CERTIFICATES_BASE64` | StoreKit server verification | 无证书时走回退或失败 |
-| `APPLE_IAP_REQUIRE_SIGNED_VERIFICATION` | Production safety switch | `true` 时缺配置/验签失败直接拒绝 |
+| `APPLE_IAP_REQUIRE_SIGNED_VERIFICATION` | Optional outside production | `true` 时缺配置/验签失败直接拒绝；production/production Vercel 环境无条件严格验签 |
 
 不要在文档、日志或测试 fixture 中写真实 key、token、证书或用户数据。
 
@@ -298,7 +299,7 @@ Recommendation V1 已在本地工作树按“完整事实时间线 → 服务端
 - Service Role 绕过 RLS：handler/repository 所有权过滤是高风险边界。
 - Gemini 无 key 时回退示例：开发可用不等于真实 AI 可用。
 - 首页日运 V2 不使用 Gemini 示例回退；缺 key、缺固定模型、超时或结构错误都会返回无正文状态。
-- StoreKit 允许未验签解码：生产必须打开严格验签。
+- StoreKit 只在非生产开发/测试环境允许未验签解码；生产缺证书、bundle ID、App Apple ID 或验签失败会直接拒绝交易。
 - 远端迁移未知：源码和 SQL 文件不能替代数据库 readback。
 - 文档检查只能证明结构化覆盖，不能自动证明业务描述完全正确。
 - 当前命理工作树未提交：整理文档不得吸收、改写或发布这些用户改动。
