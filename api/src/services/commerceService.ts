@@ -188,6 +188,7 @@ async function currentStatus(userId: string) {
     },
     store: {
       app_account_token: account.app_account_token,
+      purchases_enabled: process.env.COMMERCE_PURCHASES_ENABLED === 'true',
     },
   };
 }

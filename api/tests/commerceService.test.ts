@@ -83,6 +83,28 @@ async function main() {
     assert.equal(status.membership, null);
     assert.equal(status.points.balance, 0);
     assert.match(status.store.app_account_token, /^[0-9a-f-]{36}$/i);
+    assert.equal(status.store.purchases_enabled, false);
+  });
+
+  await run('purchase activation is an explicit server-side switch', async () => {
+    const previous = process.env.COMMERCE_PURCHASES_ENABLED;
+    process.env.COMMERCE_PURCHASES_ENABLED = 'true';
+    commerceRepository.findAccountByUser = async () => ({
+      user_id: 'user-1',
+      app_account_token: '11111111-1111-4111-8111-111111111111',
+      created_at: '2026-05-03T00:00:00.000Z',
+      updated_at: '2026-05-03T00:00:00.000Z',
+    });
+    commerceRepository.getLatestMembership = async () => null;
+    commerceRepository.getPointsBalance = async () => ({ balance: 0, updated_at: null });
+
+    try {
+      const status = await commerceService.getCommerceStatus('user-1');
+      assert.equal(status.store.purchases_enabled, true);
+    } finally {
+      if (previous === undefined) delete process.env.COMMERCE_PURCHASES_ENABLED;
+      else process.env.COMMERCE_PURCHASES_ENABLED = previous;
+    }
   });
 
   await run('verified points purchase uses signed purchase date and one atomic repository call', async () => {

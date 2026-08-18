@@ -225,6 +225,7 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 | `RECOMMENDATION_MAX_NEW_BATCHES_PER_24H` | Optional | 每用户滚动 24 小时新建批次上限，默认 6，范围 1–50；不限制同一批的 join/retry |
 | `RECOMMENDATION_MAX_ATTEMPTS_PER_BATCH` | Optional | 同一批次槽位的 provider 尝试上限，默认 3，范围 1–10；防止重试或资料编辑无限重复调用 |
 | `RECOMMENDATION_MAX_PROVIDER_ATTEMPTS_GLOBAL_PER_24H` | Optional | 全项目滚动 24 小时 provider 尝试上限，默认 100，范围 1–1000000；上线前必须按预算明确设置 |
+| `COMMERCE_PURCHASES_ENABLED` | Optional release switch | 只有字符串 `true` 允许客户端展示可购买状态；默认关闭，不代表具体功能 gate |
 | `APPLE_IAP_BUNDLE_ID` | StoreKit server verification | 无完整配置时不能创建 verifier |
 | `APPLE_IAP_ENVIRONMENT` | Optional | 默认 Sandbox |
 | `APPLE_IAP_APP_APPLE_ID` | Optional by Apple environment | 未配置时传 undefined |
