@@ -4,6 +4,8 @@ import {
   CommerceMembership,
   CommercePointsLedgerItem,
   CommerceTransaction,
+  CommerceTransactionProcessInput,
+  CommerceTransactionProcessResult,
 } from '../../models/Commerce';
 
 export class CommerceRepository {
@@ -59,6 +61,37 @@ export class CommerceRepository {
     }
 
     return data as CommerceTransaction;
+  }
+
+  async processTransaction(input: CommerceTransactionProcessInput): Promise<CommerceTransactionProcessResult> {
+    const { data, error } = await supabase.rpc('process_commerce_transaction', {
+      p_user_id: input.user_id,
+      p_transaction_id: input.transaction_id,
+      p_original_transaction_id: input.original_transaction_id,
+      p_product_id: input.product_id,
+      p_product_type: input.product_type,
+      p_app_account_token: input.app_account_token,
+      p_purchase_date: input.purchase_date,
+      p_environment: input.environment,
+      p_signed_transaction_info: input.signed_transaction_info,
+      p_verification_source: input.verification_source,
+      p_raw_payload: input.raw_payload,
+      p_membership_status: input.membership_status,
+      p_membership_tier: input.membership_tier,
+      p_expires_at: input.expires_at,
+      p_revoked_at: input.revoked_at,
+      p_points_delta: input.points_delta,
+    });
+
+    if (error) {
+      throw new Error(`原子处理商业交易失败: ${error.message}`);
+    }
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('原子处理商业交易失败: 数据库未返回处理结果');
+    }
+
+    return data as CommerceTransactionProcessResult;
   }
 
   async getLatestMembership(userId: string): Promise<CommerceMembership | null> {
@@ -158,4 +191,3 @@ export class CommerceRepository {
 }
 
 export const commerceRepository = new CommerceRepository();
-

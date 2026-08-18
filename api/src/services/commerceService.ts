@@ -86,6 +86,12 @@ function configuredVerifier(): SignedDataVerifier | null {
   return new SignedDataVerifier(roots, true, environment, bundleId, appAppleId);
 }
 
+function requiresSignedVerification(): boolean {
+  return process.env.APPLE_IAP_REQUIRE_SIGNED_VERIFICATION === 'true'
+    || process.env.NODE_ENV === 'production'
+    || process.env.VERCEL_ENV === 'production';
+}
+
 async function verifyOrDecodeTransaction(signedTransactionInfo: string): Promise<{
   payload: DecodedTransaction;
   source: string;
@@ -96,12 +102,12 @@ async function verifyOrDecodeTransaction(signedTransactionInfo: string): Promise
       const payload = await verifier.verifyAndDecodeTransaction(signedTransactionInfo);
       return { payload: payload as DecodedTransaction, source: 'apple_server_library' };
     } catch (error) {
-      if (process.env.APPLE_IAP_REQUIRE_SIGNED_VERIFICATION === 'true') {
+      if (requiresSignedVerification()) {
         throw new ValidationError('Apple 交易签名校验失败');
       }
       console.warn('[Commerce] Apple JWS verification failed, falling back to local decode:', error);
     }
-  } else if (process.env.APPLE_IAP_REQUIRE_SIGNED_VERIFICATION === 'true') {
+  } else if (requiresSignedVerification()) {
     throw new ValidationError('缺少 Apple IAP 服务端校验配置');
   }
 
@@ -112,20 +118,26 @@ async function verifyOrDecodeTransaction(signedTransactionInfo: string): Promise
 }
 
 function validateDecodedTransaction(input: CommerceTransactionSyncInput, decoded: DecodedTransaction) {
-  if (!decoded.transactionId || !decoded.productId) {
-    throw new ValidationError('signed_transaction_info 缺少 transactionId 或 productId');
+  if (!decoded.transactionId || !decoded.originalTransactionId || !decoded.productId) {
+    throw new ValidationError('signed_transaction_info 缺少交易标识或商品标识');
   }
   if (decoded.transactionId !== input.transaction_id) {
     throw new ValidationError('transaction_id 与 signed_transaction_info 不一致');
   }
-  if (decoded.originalTransactionId && decoded.originalTransactionId !== input.original_transaction_id) {
+  if (decoded.originalTransactionId !== input.original_transaction_id) {
     throw new ValidationError('original_transaction_id 与 signed_transaction_info 不一致');
   }
   if (decoded.productId !== input.product_id) {
     throw new ValidationError('product_id 与 signed_transaction_info 不一致');
   }
-  if (decoded.appAccountToken && decoded.appAccountToken.toLowerCase() !== input.app_account_token.toLowerCase()) {
+  if (!decoded.appAccountToken) {
+    throw new ValidationError('signed_transaction_info 缺少 appAccountToken');
+  }
+  if (decoded.appAccountToken.toLowerCase() !== input.app_account_token.toLowerCase()) {
     throw new ValidationError('app_account_token 与 signed_transaction_info 不一致');
+  }
+  if (!toIsoFromMillis(decoded.purchaseDate)) {
+    throw new ValidationError('signed_transaction_info 缺少有效 purchaseDate');
   }
 }
 
@@ -162,11 +174,9 @@ function formatLedgerItem(item: CommercePointsLedgerItem) {
   };
 }
 
-async function currentStatus(userId: string, appAccountToken?: string) {
-  const account = appAccountToken
-    ? await commerceRepository.upsertAccountToken(userId, appAccountToken)
-    : await commerceRepository.findAccountByUser(userId)
-      || await commerceRepository.upsertAccountToken(userId, crypto.randomUUID());
+async function currentStatus(userId: string) {
+  const account = await commerceRepository.findAccountByUser(userId)
+    || await commerceRepository.upsertAccountToken(userId, crypto.randomUUID());
   const membership = await commerceRepository.getLatestMembership(userId);
   const points = await commerceRepository.getPointsBalance(userId);
 
@@ -205,86 +215,53 @@ export async function syncCommerceTransaction(userId: string, rawInput: any) {
     throw new ValidationError('不支持的商品 ID');
   }
 
-  const existing = await commerceRepository.findTransactionById(input.transaction_id);
-  if (existing) {
-    const status = await currentStatus(userId, input.app_account_token);
-    return {
-      accepted: true,
-      duplicate: true,
-      membership: status.membership,
-      points: catalogItem.type === 'points'
-        ? { delta: null, balance: status.points.balance, ledger_entry_id: null }
-        : null,
-    };
-  }
-
   const { payload, source } = await verifyOrDecodeTransaction(input.signed_transaction_info);
   validateDecodedTransaction(input, payload);
 
-  await commerceRepository.upsertAccountToken(userId, input.app_account_token);
-  await commerceRepository.createTransaction({
+  const purchaseDate = toIsoFromMillis(payload.purchaseDate)!;
+  const revokedAt = toIsoFromMillis(payload.revocationDate);
+  const processed = await commerceRepository.processTransaction({
     transaction_id: input.transaction_id,
     original_transaction_id: input.original_transaction_id,
     user_id: userId,
     product_id: input.product_id,
     product_type: catalogItem.type,
     app_account_token: input.app_account_token,
-    purchase_date: input.purchase_date,
+    purchase_date: purchaseDate,
     environment: payload.environment || null,
     signed_transaction_info: input.signed_transaction_info,
     verification_source: source,
     raw_payload: payload,
+    membership_status: catalogItem.type === 'membership' ? membershipStatus(payload) : null,
+    membership_tier: catalogItem.type === 'membership' ? catalogItem.tier || null : null,
+    expires_at: catalogItem.type === 'membership' ? toIsoFromMillis(payload.expiresDate) : null,
+    revoked_at: catalogItem.type === 'membership' ? revokedAt : null,
+    points_delta: catalogItem.type === 'points'
+      ? (revokedAt ? -(catalogItem.points || 0) : catalogItem.points || 0)
+      : null,
   });
 
   if (catalogItem.type === 'membership') {
-    const membership = await commerceRepository.upsertMembership({
-      user_id: userId,
-      status: membershipStatus(payload),
-      tier: catalogItem.tier || null,
-      product_id: input.product_id,
-      original_transaction_id: input.original_transaction_id,
-      transaction_id: input.transaction_id,
-      expires_at: toIsoFromMillis(payload.expiresDate),
-      environment: payload.environment || null,
-      will_auto_renew: false,
-      grace_period_expires_at: null,
-      revoked_at: toIsoFromMillis(payload.revocationDate),
-      raw_transaction: payload,
-    });
-
     return {
       accepted: true,
-      duplicate: false,
-      membership: formatMembership(membership),
+      duplicate: processed.duplicate,
+      membership: formatMembership(processed.membership),
       points: null,
     };
   }
 
-  if (payload.revocationDate) {
-    throw new ValidationError('已撤销的积分交易不能入账');
+  if (!processed.points) {
+    throw new Error('积分交易处理完成但缺少账本结果');
   }
-
-  const ledger = await commerceRepository.applyPointsDelta({
-    userId,
-    type: 'purchase',
-    delta: catalogItem.points || 0,
-    source: 'storekit_transaction',
-    sourceId: input.transaction_id,
-    idempotencyKey: `purchase:${input.transaction_id}`,
-    metadata: {
-      product_id: input.product_id,
-      original_transaction_id: input.original_transaction_id,
-    },
-  });
 
   return {
     accepted: true,
-    duplicate: false,
+    duplicate: processed.duplicate,
     membership: null,
     points: {
-      delta: ledger.delta,
-      balance: ledger.balance_after,
-      ledger_entry_id: ledger.id,
+      delta: processed.duplicate && !revokedAt ? null : processed.points.delta,
+      balance: processed.points.balance_after,
+      ledger_entry_id: processed.points.id,
     },
   };
 }
@@ -337,4 +314,3 @@ export async function consumeCommercePoints(userId: string, rawInput: any) {
     throw error;
   }
 }
-
