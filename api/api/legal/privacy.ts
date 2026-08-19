@@ -50,7 +50,7 @@ const privacyPolicyHtml = `<!doctype html>
   <p>当产品能力、第三方服务或适用规则发生变化时，我们会更新本政策，并在页面上标明新的生效日期。重大变化会通过 App 内适当方式提示。</p>
 
   <h2>联系我们</h2>
-  <p>如对隐私、数据访问或删除有疑问，请通过 App 内“我的 → 关于与帮助”中的支持入口联系我们。</p>
+  <p>如对隐私、数据访问或删除有疑问，请通过 App 内“我的 → 关于与帮助”中的支持入口，或发送邮件至 <a href="mailto:hello@zhizhi.one">hello@zhizhi.one</a> 联系我们。</p>
 </main>
 </body>
 </html>`;
