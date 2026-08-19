@@ -250,7 +250,7 @@ Production 与 Sandbox 分别使用独立 App Store Server Notifications V2 URL�
 | Supabase Auth email/Apple/Google providers | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 后端调用路径存在，Provider 状态未知 | 分别用有效/无效 token 验证登录合同 |
 | Gemini generation | EXTERNAL_UNVERIFIED | 2026-07-23 | V2 transport/Prompt/schema unit tests only | V2 没有 fallback；真实模型尚未调用 | 在 staging 配置固定模型，验证内容质量和失败路径 |
 | Recommendation V1 Gemini / behavioral loop | EXTERNAL_UNVERIFIED | 2026-08-05 | 本地 16-window/96-KB 检索、30 张 Structured Output、10+10+10 编排、机械事实/时间窗口引用和离线结构评测 | 未调用真实模型；未证明 30 张输出的延迟/截断、命理事件题材质量或 exposure/open 线上闭环 | 固定模型与匿名测试档案跑三批展示及下一候选池；人工审读样本、输入预算、token、延迟和下一次 AI 输入 |
-| Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-08-19 | 12 个 commerce service tests、Sandbox TEST notification local smoke、iOS Commerce contract tests | 本地签名/通知/原子交付合同通过；真实 Apple JWS、商品与通知 URL 尚未配置 | App Store Connect 登录后配置商品与两个 V2 URL，执行真实 Sandbox 购买/恢复/退款 |
+| Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-08-19 | 12 个 commerce service tests、Sandbox TEST notification local smoke、iOS Commerce contract tests；production Supabase function/privilege readback | migration 020 已应用且商业 RPC 只允许 service role；真实 Apple JWS、商品与通知 URL 尚未配置 | App Store Connect 登录后配置商品与两个 V2 URL，执行真实 Sandbox 购买/恢复/退款 |
 | iOS end-to-end flows | EXTERNAL_UNVERIFIED | 2026-08-05 | 10+0 合同、剩 5 张预取边界和逐项展开隔离测试通过；Simulator build passed; no live API run | 上方推荐与下方真实 analysis/detail 链路已在源码解耦，未证明线上可用 | 部署 staging 后用真实账号、三柱和四柱档案验收三批大卡与独立逐项展开 |
 
 ## 8. 验证方案
