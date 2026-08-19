@@ -40,6 +40,10 @@ export interface CommerceMembership {
   will_auto_renew: boolean;
   grace_period_expires_at: string | null;
   revoked_at: string | null;
+  state_event_at: string | null;
+  state_priority: number;
+  last_notification_uuid: string | null;
+  last_notification_type: string | null;
   raw_transaction: Record<string, any>;
   created_at: string;
   updated_at: string;

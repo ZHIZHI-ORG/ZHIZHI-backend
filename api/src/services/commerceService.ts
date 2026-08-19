@@ -30,6 +30,7 @@ type DecodedTransaction = Record<string, any> & {
   productId?: string;
   appAccountToken?: string;
   purchaseDate?: number;
+  signedDate?: number;
   expiresDate?: number;
   revocationDate?: number;
   environment?: string;
@@ -102,26 +103,62 @@ function requiresSignedVerification(): boolean {
     || process.env.VERCEL_ENV === 'production';
 }
 
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function canDeliverSandboxTransaction(userId: string): boolean {
+  if (!isProductionRuntime()) return true;
+  if (process.env.COMMERCE_SANDBOX_DELIVERY_ENABLED !== 'true') return false;
+
+  const allowedUserIds = new Set(
+    (process.env.COMMERCE_SANDBOX_TEST_USER_IDS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  return allowedUserIds.has(userId);
+}
+
 async function verifyOrDecodeTransaction(
   signedTransactionInfo: string,
-  environment = configuredEnvironment(),
+  explicitEnvironment?: Environment,
 ): Promise<{
   payload: DecodedTransaction;
   source: string;
 }> {
-  const verifier = configuredVerifier(environment);
-  if (verifier) {
+  const configured = configuredEnvironment();
+  const environments = explicitEnvironment
+    ? [explicitEnvironment]
+    : configured === Environment.PRODUCTION
+      ? [Environment.PRODUCTION, Environment.SANDBOX]
+      : [configured];
+  let hasVerifier = false;
+  let lastVerificationError: unknown = null;
+
+  for (const environment of environments) {
+    const verifier = configuredVerifier(environment);
+    if (!verifier) continue;
+    hasVerifier = true;
     try {
       const payload = await verifier.verifyAndDecodeTransaction(signedTransactionInfo);
-      return { payload: payload as DecodedTransaction, source: 'apple_server_library' };
+      return {
+        payload: payload as DecodedTransaction,
+        source: `apple_server_library:${environment}`,
+      };
     } catch (error) {
-      if (requiresSignedVerification()) {
-        throw new ValidationError('Apple 交易签名校验失败');
-      }
-      console.warn('[Commerce] Apple JWS verification failed, falling back to local decode:', error);
+      lastVerificationError = error;
     }
-  } else if (requiresSignedVerification()) {
-    throw new ValidationError('缺少 Apple IAP 服务端校验配置');
+  }
+
+  if (requiresSignedVerification()) {
+    if (!hasVerifier) {
+      throw new ValidationError('缺少 Apple IAP 服务端校验配置');
+    }
+    throw new ValidationError('Apple 交易签名校验失败');
+  }
+  if (lastVerificationError) {
+    console.warn('[Commerce] Apple JWS verification failed, falling back to local decode:', lastVerificationError);
   }
 
   return {
@@ -268,6 +305,10 @@ async function deliverCommerceTransaction(input: CommerceTransactionSyncInput, u
   renewalInfo?: JWSRenewalInfoDecodedPayload | null;
 }) {
   const { decoded, source, renewalInfo } = options;
+  if (String(decoded.environment || '').toLowerCase() === 'sandbox'
+      && !canDeliverSandboxTransaction(userId)) {
+    throw new ValidationError('Sandbox 交易只允许显式配置的测试账号');
+  }
   const catalogItem = PRODUCT_CATALOG[input.product_id];
   if (!catalogItem) {
     throw new ValidationError('不支持的商品 ID');
@@ -441,9 +482,17 @@ export async function processAppStoreNotification(
     : null;
 
   const identity = await resolveNotificationIdentity(decoded);
-  const decodedWithAccountToken: DecodedTransaction = decoded.appAccountToken
-    ? decoded
-    : { ...decoded, appAccountToken: identity.appAccountToken };
+  const notificationContext = {
+    signedDate: notification.signedDate || null,
+    notificationUUID,
+    notificationType,
+    subtype,
+  };
+  const decodedWithAccountToken: DecodedTransaction = {
+    ...decoded,
+    appAccountToken: decoded.appAccountToken || identity.appAccountToken,
+    notificationContext,
+  };
   const input: CommerceTransactionSyncInput = {
     transaction_id: requiredString(decoded.transactionId, 'transactionId'),
     original_transaction_id: requiredString(decoded.originalTransactionId, 'originalTransactionId'),
@@ -458,7 +507,7 @@ export async function processAppStoreNotification(
 
   const delivery = await deliverCommerceTransaction(input, identity.userId, {
     decoded: decodedWithAccountToken,
-    source,
+    source: `apple_server_notification:${source}`,
     renewalInfo,
   });
 
@@ -516,6 +565,9 @@ export async function consumeCommercePoints(userId: string, rawInput: any) {
   } catch (error: any) {
     if (String(error?.message || '').includes('INSUFFICIENT_POINTS')) {
       throw new ValidationError('积分余额不足', { code: 'INSUFFICIENT_POINTS' });
+    }
+    if (String(error?.message || '').includes('POINTS_REFUND_DEBT')) {
+      throw new ValidationError('退款积分尚未结清，暂不能使用积分', { code: 'POINTS_REFUND_DEBT' });
     }
     throw error;
   }

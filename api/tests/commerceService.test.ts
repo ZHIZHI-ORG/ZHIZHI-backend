@@ -40,6 +40,7 @@ function transactionPayload(overrides: Record<string, any> = {}) {
     productId: 'com.zhizhi.points.small',
     appAccountToken: '11111111-1111-4111-8111-111111111111',
     purchaseDate: Date.parse('2026-05-03T00:00:00.000Z'),
+    signedDate: Date.parse('2026-05-03T00:00:01.000Z'),
     environment: 'Xcode',
     ...overrides,
   };
@@ -260,6 +261,7 @@ async function main() {
     assert.equal(result.accepted, true);
     assert.equal(result.ignored, false);
     assert.equal(received.membership_status, 'grace_period');
+    assert.match(received.verification_source, /^apple_server_notification:/);
     assert.equal(received.will_auto_renew, true);
     assert.equal(received.grace_period_expires_at, new Date(gracePeriodExpiresDate).toISOString());
   });
@@ -336,6 +338,25 @@ async function main() {
     assert.match(migration, /REVOKE ALL ON FUNCTION apply_commerce_points_delta/);
     assert.match(migration, /FROM PUBLIC, anon, authenticated/);
     assert.match(migration, /GRANT EXECUTE ON FUNCTION process_commerce_transaction[\s\S]*TO service_role/);
+
+    const lifecycleMigrationPath = path.resolve(__dirname, '../../supabase/migrations/021_commerce_lifecycle_guards.sql');
+    const lifecycleMigration = fs.readFileSync(lifecycleMigrationPath, 'utf8');
+    assert.match(lifecycleMigration, /state_event_at/);
+    assert.match(lifecycleMigration, /notificationContext,signedDate/);
+    assert.match(lifecycleMigration, /last_notification_uuid/);
+    assert.match(lifecycleMigration, /p_membership_status IN \('active', 'grace_period', 'billing_retry'\)/);
+    assert.match(lifecycleMigration, /apple_server_notification:/);
+    assert.match(lifecycleMigration, /commerce_points_refund_debts/);
+    assert.match(lifecycleMigration, /POINTS_REFUND_DEBT/);
+
+    const commerceSource = fs.readFileSync(path.resolve(__dirname, '../src/services/commerceService.ts'), 'utf8');
+    assert.match(
+      commerceSource,
+      /configured === Environment\.PRODUCTION[\s\S]*Environment\.PRODUCTION, Environment\.SANDBOX/,
+    );
+    assert.match(commerceSource, /COMMERCE_SANDBOX_DELIVERY_ENABLED/);
+    assert.match(commerceSource, /COMMERCE_SANDBOX_TEST_USER_IDS/);
+    assert.match(commerceSource, /notificationContext/);
 
     const catchAll = fs.readFileSync(path.resolve(__dirname, '../api/[...path].ts'), 'utf8');
     assert.match(catchAll, /\/api\/commerce\/notifications\/apple/);
