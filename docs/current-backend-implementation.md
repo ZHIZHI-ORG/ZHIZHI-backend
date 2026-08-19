@@ -231,9 +231,9 @@ Production 与 Sandbox 分别使用独立 App Store Server Notifications V2 URL�
 | `RECOMMENDATION_MAX_ATTEMPTS_PER_BATCH` | Optional | 同一批次槽位的 provider 尝试上限，默认 3，范围 1–10；防止重试或资料编辑无限重复调用 |
 | `RECOMMENDATION_MAX_PROVIDER_ATTEMPTS_GLOBAL_PER_24H` | Optional | 全项目滚动 24 小时 provider 尝试上限，默认 100，范围 1–1000000；上线前必须按预算明确设置 |
 | `COMMERCE_PURCHASES_ENABLED` | Optional release switch | 只有字符串 `true` 允许客户端展示可购买状态；默认关闭，不代表具体功能 gate |
-| `APPLE_IAP_BUNDLE_ID` | StoreKit server verification | 无完整配置时不能创建 verifier |
-| `APPLE_IAP_ENVIRONMENT` | Optional | 默认 Sandbox |
-| `APPLE_IAP_APP_APPLE_ID` | Optional by Apple environment | 未配置时传 undefined |
+| `APPLE_IAP_BUNDLE_ID` | StoreKit server verification | 生产值为 `com.ZHI9-25`；无完整配置时不能创建 verifier |
+| `APPLE_IAP_ENVIRONMENT` | Optional | 生产应为 `Production`；未配置默认 Sandbox |
+| `APPLE_IAP_APP_APPLE_ID` | Optional by Apple environment | 生产值为 `6758699042`；未配置时传 undefined |
 | `APPLE_IAP_ROOT_CERTIFICATES_BASE64` | StoreKit server verification | 无证书时走回退或失败 |
 | `APPLE_IAP_REQUIRE_SIGNED_VERIFICATION` | Optional outside production | `true` 时缺配置/验签失败直接拒绝；production/production Vercel 环境无条件严格验签 |
 
@@ -250,7 +250,7 @@ Production 与 Sandbox 分别使用独立 App Store Server Notifications V2 URL�
 | Supabase Auth email/Apple/Google providers | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 后端调用路径存在，Provider 状态未知 | 分别用有效/无效 token 验证登录合同 |
 | Gemini generation | EXTERNAL_UNVERIFIED | 2026-07-23 | V2 transport/Prompt/schema unit tests only | V2 没有 fallback；真实模型尚未调用 | 在 staging 配置固定模型，验证内容质量和失败路径 |
 | Recommendation V1 Gemini / behavioral loop | EXTERNAL_UNVERIFIED | 2026-08-05 | 本地 16-window/96-KB 检索、30 张 Structured Output、10+10+10 编排、机械事实/时间窗口引用和离线结构评测 | 未调用真实模型；未证明 30 张输出的延迟/截断、命理事件题材质量或 exposure/open 线上闭环 | 固定模型与匿名测试档案跑三批展示及下一候选池；人工审读样本、输入预算、token、延迟和下一次 AI 输入 |
-| Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-08-19 | 12 个 commerce service tests、Sandbox TEST notification local smoke、iOS Commerce contract tests；production Supabase function/privilege readback | migration 020 已应用且商业 RPC 只允许 service role；真实 Apple JWS、商品与通知 URL 尚未配置 | App Store Connect 登录后配置商品与两个 V2 URL，执行真实 Sandbox 购买/恢复/退款 |
+| Apple StoreKit server verification | PARTIAL_EXTERNAL | 2026-08-19 | 12 个 commerce service tests、Sandbox TEST notification local smoke、iOS Commerce contract tests；production Supabase function/privilege readback；App Store Connect API readback | migration 020 已应用且商业 RPC 只允许 service role；五个商品已补齐双语元数据、175 个地区、价格、订阅组本地化和审核截图，均为 `READY_TO_SUBMIT`；生产 Vercel 尚未部署本轮 StoreKit 代码/验签变量，两个通知 URL 与真实 Apple JWS 尚未验证 | 隔离部署后配置 Production/Sandbox V2 URL，执行真实 Sandbox 购买、续订、恢复和退款 |
 | iOS end-to-end flows | EXTERNAL_UNVERIFIED | 2026-08-05 | 10+0 合同、剩 5 张预取边界和逐项展开隔离测试通过；Simulator build passed; no live API run | 上方推荐与下方真实 analysis/detail 链路已在源码解耦，未证明线上可用 | 部署 staging 后用真实账号、三柱和四柱档案验收三批大卡与独立逐项展开 |
 
 ## 8. 验证方案
