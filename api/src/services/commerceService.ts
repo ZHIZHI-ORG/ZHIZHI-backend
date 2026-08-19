@@ -1,5 +1,11 @@
 import crypto from 'crypto';
-import { Environment, SignedDataVerifier } from '@apple/app-store-server-library';
+import {
+  AutoRenewStatus,
+  Environment,
+  JWSRenewalInfoDecodedPayload,
+  ResponseBodyV2DecodedPayload,
+  SignedDataVerifier,
+} from '@apple/app-store-server-library';
 import { commerceRepository } from '../database/repositories/CommerceRepository';
 import {
   CommerceMembership,
@@ -8,7 +14,7 @@ import {
   CommercePointsLedgerItem,
   CommerceTransactionSyncInput,
 } from '../models/Commerce';
-import { ValidationError } from '../utils/errors';
+import { ServiceUnavailableError, ValidationError } from '../utils/errors';
 
 const PRODUCT_CATALOG: Record<string, { type: 'membership' | 'points'; tier?: string; points?: number }> = {
   'com.zhizhi.membership.monthly': { type: 'membership', tier: 'monthly' },
@@ -28,6 +34,8 @@ type DecodedTransaction = Record<string, any> & {
   revocationDate?: number;
   environment?: string;
 };
+
+export type CommerceNotificationEnvironment = 'Production' | 'Sandbox';
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -51,20 +59,28 @@ function decodeBase64UrlJson(value: string): any {
   return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
 }
 
-function decodeUnsignedJwsPayload(signedTransactionInfo: string): DecodedTransaction {
-  const parts = signedTransactionInfo.split('.');
+function decodeUnsignedJwsPayload<T = DecodedTransaction>(signedData: string, field = 'signed_transaction_info'): T {
+  const parts = signedData.split('.');
   if (parts.length !== 3 || !parts[1]) {
-    throw new ValidationError('signed_transaction_info 必须是 JWS Compact 格式');
+    throw new ValidationError(`${field} 必须是 JWS Compact 格式`);
   }
 
   try {
-    return decodeBase64UrlJson(parts[1]) as DecodedTransaction;
+    return decodeBase64UrlJson(parts[1]) as T;
   } catch {
-    throw new ValidationError('signed_transaction_info payload 无法解析');
+    throw new ValidationError(`${field} payload 无法解析`);
   }
 }
 
-function configuredVerifier(): SignedDataVerifier | null {
+function configuredEnvironment(): Environment {
+  const envValue = (process.env.APPLE_IAP_ENVIRONMENT || 'Sandbox').toLowerCase();
+  return envValue === 'production' ? Environment.PRODUCTION
+    : envValue === 'xcode' ? Environment.XCODE
+    : envValue === 'localtesting' || envValue === 'local_testing' ? Environment.LOCAL_TESTING
+    : Environment.SANDBOX;
+}
+
+function configuredVerifier(environment = configuredEnvironment()): SignedDataVerifier | null {
   const roots = (process.env.APPLE_IAP_ROOT_CERTIFICATES_BASE64 || '')
     .split(/[,\n]/)
     .map((item) => item.trim())
@@ -73,12 +89,6 @@ function configuredVerifier(): SignedDataVerifier | null {
   const bundleId = process.env.APPLE_IAP_BUNDLE_ID;
   if (!roots.length || !bundleId) return null;
 
-  const envValue = (process.env.APPLE_IAP_ENVIRONMENT || 'Sandbox').toLowerCase();
-  const environment =
-    envValue === 'production' ? Environment.PRODUCTION :
-    envValue === 'xcode' ? Environment.XCODE :
-    envValue === 'localtesting' || envValue === 'local_testing' ? Environment.LOCAL_TESTING :
-    Environment.SANDBOX;
   const appAppleId = process.env.APPLE_IAP_APP_APPLE_ID
     ? Number(process.env.APPLE_IAP_APP_APPLE_ID)
     : undefined;
@@ -92,11 +102,14 @@ function requiresSignedVerification(): boolean {
     || process.env.VERCEL_ENV === 'production';
 }
 
-async function verifyOrDecodeTransaction(signedTransactionInfo: string): Promise<{
+async function verifyOrDecodeTransaction(
+  signedTransactionInfo: string,
+  environment = configuredEnvironment(),
+): Promise<{
   payload: DecodedTransaction;
   source: string;
 }> {
-  const verifier = configuredVerifier();
+  const verifier = configuredVerifier(environment);
   if (verifier) {
     try {
       const payload = await verifier.verifyAndDecodeTransaction(signedTransactionInfo);
@@ -115,6 +128,48 @@ async function verifyOrDecodeTransaction(signedTransactionInfo: string): Promise
     payload: decodeUnsignedJwsPayload(signedTransactionInfo),
     source: 'decoded_jws_unverified',
   };
+}
+
+async function verifyOrDecodeNotification(
+  signedPayload: string,
+  environment: Environment,
+): Promise<ResponseBodyV2DecodedPayload> {
+  const verifier = configuredVerifier(environment);
+  if (verifier) {
+    try {
+      return await verifier.verifyAndDecodeNotification(signedPayload);
+    } catch (error) {
+      if (requiresSignedVerification()) {
+        throw new ValidationError('Apple Server Notification 签名校验失败');
+      }
+      console.warn('[Commerce] Apple notification verification failed, falling back to local decode:', error);
+    }
+  } else if (requiresSignedVerification()) {
+    throw new ValidationError('缺少 Apple IAP 服务端校验配置');
+  }
+
+  return decodeUnsignedJwsPayload<ResponseBodyV2DecodedPayload>(signedPayload, 'signedPayload');
+}
+
+async function verifyOrDecodeRenewalInfo(
+  signedRenewalInfo: string,
+  environment: Environment,
+): Promise<JWSRenewalInfoDecodedPayload> {
+  const verifier = configuredVerifier(environment);
+  if (verifier) {
+    try {
+      return await verifier.verifyAndDecodeRenewalInfo(signedRenewalInfo);
+    } catch (error) {
+      if (requiresSignedVerification()) {
+        throw new ValidationError('Apple 续订信息签名校验失败');
+      }
+      console.warn('[Commerce] Apple renewal verification failed, falling back to local decode:', error);
+    }
+  } else if (requiresSignedVerification()) {
+    throw new ValidationError('缺少 Apple IAP 服务端校验配置');
+  }
+
+  return decodeUnsignedJwsPayload<JWSRenewalInfoDecodedPayload>(signedRenewalInfo, 'signedRenewalInfo');
 }
 
 function validateDecodedTransaction(input: CommerceTransactionSyncInput, decoded: DecodedTransaction) {
@@ -141,8 +196,18 @@ function validateDecodedTransaction(input: CommerceTransactionSyncInput, decoded
   }
 }
 
-function membershipStatus(decoded: DecodedTransaction): CommerceMembershipStatus {
+function membershipStatus(
+  decoded: DecodedTransaction,
+  renewalInfo?: JWSRenewalInfoDecodedPayload | null,
+): CommerceMembershipStatus {
   if (decoded.revocationDate) return 'revoked';
+
+  const gracePeriodExpiresAt = toIsoFromMillis(renewalInfo?.gracePeriodExpiresDate);
+  if (gracePeriodExpiresAt && new Date(gracePeriodExpiresAt).getTime() > Date.now()) {
+    return 'grace_period';
+  }
+  if (renewalInfo?.isInBillingRetryPeriod) return 'billing_retry';
+
   const expiresAt = toIsoFromMillis(decoded.expiresDate);
   if (!expiresAt) return 'active';
   return new Date(expiresAt).getTime() > Date.now() ? 'active' : 'inactive';
@@ -197,30 +262,21 @@ export async function getCommerceStatus(userId: string) {
   return currentStatus(userId);
 }
 
-export async function syncCommerceTransaction(userId: string, rawInput: any) {
-  const input: CommerceTransactionSyncInput = {
-    transaction_id: requiredString(rawInput?.transaction_id, 'transaction_id'),
-    original_transaction_id: requiredString(rawInput?.original_transaction_id, 'original_transaction_id'),
-    product_id: requiredString(rawInput?.product_id, 'product_id'),
-    purchase_date: requiredString(rawInput?.purchase_date, 'purchase_date'),
-    app_account_token: requiredString(rawInput?.app_account_token, 'app_account_token'),
-    signed_transaction_info: requiredString(rawInput?.signed_transaction_info, 'signed_transaction_info'),
-  };
-
-  if (!isUuid(input.app_account_token)) {
-    throw new ValidationError('app_account_token 必须是 UUID');
-  }
-
+async function deliverCommerceTransaction(input: CommerceTransactionSyncInput, userId: string, options: {
+  decoded: DecodedTransaction;
+  source: string;
+  renewalInfo?: JWSRenewalInfoDecodedPayload | null;
+}) {
+  const { decoded, source, renewalInfo } = options;
   const catalogItem = PRODUCT_CATALOG[input.product_id];
   if (!catalogItem) {
     throw new ValidationError('不支持的商品 ID');
   }
 
-  const { payload, source } = await verifyOrDecodeTransaction(input.signed_transaction_info);
-  validateDecodedTransaction(input, payload);
+  validateDecodedTransaction(input, decoded);
 
-  const purchaseDate = toIsoFromMillis(payload.purchaseDate)!;
-  const revokedAt = toIsoFromMillis(payload.revocationDate);
+  const purchaseDate = toIsoFromMillis(decoded.purchaseDate)!;
+  const revokedAt = toIsoFromMillis(decoded.revocationDate);
   const processed = await commerceRepository.processTransaction({
     transaction_id: input.transaction_id,
     original_transaction_id: input.original_transaction_id,
@@ -229,14 +285,20 @@ export async function syncCommerceTransaction(userId: string, rawInput: any) {
     product_type: catalogItem.type,
     app_account_token: input.app_account_token,
     purchase_date: purchaseDate,
-    environment: payload.environment || null,
+    environment: decoded.environment || null,
     signed_transaction_info: input.signed_transaction_info,
     verification_source: source,
-    raw_payload: payload,
-    membership_status: catalogItem.type === 'membership' ? membershipStatus(payload) : null,
+    raw_payload: decoded,
+    membership_status: catalogItem.type === 'membership' ? membershipStatus(decoded, renewalInfo) : null,
     membership_tier: catalogItem.type === 'membership' ? catalogItem.tier || null : null,
-    expires_at: catalogItem.type === 'membership' ? toIsoFromMillis(payload.expiresDate) : null,
+    expires_at: catalogItem.type === 'membership' ? toIsoFromMillis(decoded.expiresDate) : null,
     revoked_at: catalogItem.type === 'membership' ? revokedAt : null,
+    will_auto_renew: catalogItem.type === 'membership'
+      ? renewalInfo?.autoRenewStatus === AutoRenewStatus.ON
+      : false,
+    grace_period_expires_at: catalogItem.type === 'membership'
+      ? toIsoFromMillis(renewalInfo?.gracePeriodExpiresDate)
+      : null,
     points_delta: catalogItem.type === 'points'
       ? (revokedAt ? -(catalogItem.points || 0) : catalogItem.points || 0)
       : null,
@@ -264,6 +326,149 @@ export async function syncCommerceTransaction(userId: string, rawInput: any) {
       balance: processed.points.balance_after,
       ledger_entry_id: processed.points.id,
     },
+  };
+}
+
+export async function syncCommerceTransaction(userId: string, rawInput: any) {
+  const input: CommerceTransactionSyncInput = {
+    transaction_id: requiredString(rawInput?.transaction_id, 'transaction_id'),
+    original_transaction_id: requiredString(rawInput?.original_transaction_id, 'original_transaction_id'),
+    product_id: requiredString(rawInput?.product_id, 'product_id'),
+    purchase_date: requiredString(rawInput?.purchase_date, 'purchase_date'),
+    app_account_token: requiredString(rawInput?.app_account_token, 'app_account_token'),
+    signed_transaction_info: requiredString(rawInput?.signed_transaction_info, 'signed_transaction_info'),
+  };
+
+  if (!isUuid(input.app_account_token)) {
+    throw new ValidationError('app_account_token 必须是 UUID');
+  }
+
+  const { payload, source } = await verifyOrDecodeTransaction(input.signed_transaction_info);
+  return deliverCommerceTransaction(input, userId, { decoded: payload, source });
+}
+
+function notificationEnvironment(value: CommerceNotificationEnvironment): Environment {
+  return value === 'Production' ? Environment.PRODUCTION : Environment.SANDBOX;
+}
+
+async function resolveNotificationIdentity(decoded: DecodedTransaction): Promise<{
+  userId: string;
+  appAccountToken: string;
+}> {
+  if (decoded.appAccountToken) {
+    const account = await commerceRepository.findAccountByToken(decoded.appAccountToken);
+    if (account) {
+      return { userId: account.user_id, appAccountToken: account.app_account_token };
+    }
+  }
+
+  if (decoded.transactionId) {
+    const transaction = await commerceRepository.findTransactionById(decoded.transactionId);
+    if (transaction) {
+      return { userId: transaction.user_id, appAccountToken: transaction.app_account_token };
+    }
+  }
+
+  if (decoded.originalTransactionId) {
+    const transaction = await commerceRepository.findTransactionByOriginalId(decoded.originalTransactionId);
+    if (transaction) {
+      return { userId: transaction.user_id, appAccountToken: transaction.app_account_token };
+    }
+  }
+
+  throw new ServiceUnavailableError('暂时无法把 Apple 通知关联到用户，等待客户端首次同步', {
+    code: 'COMMERCE_NOTIFICATION_USER_UNRESOLVED',
+  });
+}
+
+export async function processAppStoreNotification(
+  rawInput: any,
+  expectedEnvironment: CommerceNotificationEnvironment,
+) {
+  const signedPayload = requiredString(rawInput?.signedPayload, 'signedPayload');
+  const environment = notificationEnvironment(expectedEnvironment);
+  const notification = await verifyOrDecodeNotification(signedPayload, environment);
+  const notificationType = String(notification.notificationType || 'UNKNOWN');
+  const subtype = notification.subtype ? String(notification.subtype) : null;
+  const notificationUUID = notification.notificationUUID || null;
+  const actualEnvironment = notification.data?.environment
+    ? String(notification.data.environment).toLowerCase()
+    : null;
+
+  if (actualEnvironment && actualEnvironment !== expectedEnvironment.toLowerCase()) {
+    throw new ValidationError('Apple 通知环境与接收端点不一致');
+  }
+
+  if (notificationType === 'TEST') {
+    return {
+      accepted: true,
+      ignored: true,
+      notification_uuid: notificationUUID,
+      notification_type: notificationType,
+      subtype,
+    };
+  }
+
+  if (notificationType === 'CONSUMPTION_REQUEST') {
+    return {
+      accepted: true,
+      ignored: true,
+      notification_uuid: notificationUUID,
+      notification_type: notificationType,
+      subtype,
+      reason: 'consumption_request_requires_separate_refund_decision_flow',
+    };
+  }
+
+  const signedTransactionInfo = notification.data?.signedTransactionInfo;
+  if (!signedTransactionInfo) {
+    return {
+      accepted: true,
+      ignored: true,
+      notification_uuid: notificationUUID,
+      notification_type: notificationType,
+      subtype,
+      reason: 'notification_has_no_transaction',
+    };
+  }
+
+  const { payload: decoded, source } = await verifyOrDecodeTransaction(
+    signedTransactionInfo,
+    environment,
+  );
+  const renewalInfo = notification.data?.signedRenewalInfo
+    ? await verifyOrDecodeRenewalInfo(notification.data.signedRenewalInfo, environment)
+    : null;
+
+  const identity = await resolveNotificationIdentity(decoded);
+  const decodedWithAccountToken: DecodedTransaction = decoded.appAccountToken
+    ? decoded
+    : { ...decoded, appAccountToken: identity.appAccountToken };
+  const input: CommerceTransactionSyncInput = {
+    transaction_id: requiredString(decoded.transactionId, 'transactionId'),
+    original_transaction_id: requiredString(decoded.originalTransactionId, 'originalTransactionId'),
+    product_id: requiredString(decoded.productId, 'productId'),
+    purchase_date: requiredString(toIsoFromMillis(decoded.purchaseDate), 'purchaseDate'),
+    app_account_token: identity.appAccountToken,
+    signed_transaction_info: signedTransactionInfo,
+  };
+  if (!isUuid(input.app_account_token)) {
+    throw new ValidationError('Apple 通知中的 appAccountToken 必须是 UUID');
+  }
+
+  const delivery = await deliverCommerceTransaction(input, identity.userId, {
+    decoded: decodedWithAccountToken,
+    source,
+    renewalInfo,
+  });
+
+  return {
+    accepted: true,
+    ignored: false,
+    notification_uuid: notificationUUID,
+    notification_type: notificationType,
+    subtype,
+    duplicate: delivery.duplicate,
   };
 }
 

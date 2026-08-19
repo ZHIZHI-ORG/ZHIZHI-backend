@@ -71,6 +71,9 @@ import commerceStatusHandler from './api/commerce/status';
 import commerceTransactionSyncHandler from './api/commerce/transactions/sync';
 import commercePointsLedgerHandler from './api/commerce/points/ledger';
 import commercePointsConsumeHandler from './api/commerce/points/consume';
+import commerceAppleNotificationHandler from './api/commerce/notifications/apple';
+import commerceAppleSandboxNotificationHandler from './api/commerce/notifications/apple-sandbox';
+import privacyPolicyHandler from './api/legal/privacy';
 
 // ─────────────────────────────────────────────────────────────
 // 路由表（精确路径匹配）
@@ -120,6 +123,9 @@ const routes: Record<string, any> = {
   '/api/commerce/transactions/sync': commerceTransactionSyncHandler,
   '/api/commerce/points/ledger': commercePointsLedgerHandler,
   '/api/commerce/points/consume': commercePointsConsumeHandler,
+  '/api/commerce/notifications/apple': commerceAppleNotificationHandler,
+  '/api/commerce/notifications/apple-sandbox': commerceAppleSandboxNotificationHandler,
+  '/api/legal/privacy': privacyPolicyHandler,
 };
 
 

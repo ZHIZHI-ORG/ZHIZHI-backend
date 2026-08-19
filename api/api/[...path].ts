@@ -45,6 +45,10 @@ import commerceStatusHandler from './commerce/status';
 import commerceTransactionSyncHandler from './commerce/transactions/sync';
 import commercePointsLedgerHandler from './commerce/points/ledger';
 import commercePointsConsumeHandler from './commerce/points/consume';
+import commerceAppleNotificationHandler from './commerce/notifications/apple';
+import commerceAppleSandboxNotificationHandler from './commerce/notifications/apple-sandbox';
+
+import privacyPolicyHandler from './legal/privacy';
 
 import contentListHandler from './content/list';
 import contentCreateHandler from './content/create';
@@ -88,6 +92,10 @@ const routes: Record<string, Handler> = {
   '/api/commerce/transactions/sync': commerceTransactionSyncHandler,
   '/api/commerce/points/ledger': commercePointsLedgerHandler,
   '/api/commerce/points/consume': commercePointsConsumeHandler,
+  '/api/commerce/notifications/apple': commerceAppleNotificationHandler,
+  '/api/commerce/notifications/apple-sandbox': commerceAppleSandboxNotificationHandler,
+
+  '/api/legal/privacy': privacyPolicyHandler,
 
   '/api/content/list': contentListHandler,
   '/api/content/create': contentCreateHandler,

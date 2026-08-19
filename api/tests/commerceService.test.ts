@@ -10,7 +10,10 @@ type AsyncFn = (...args: any[]) => Promise<any>;
 
 const originalMethods: Record<string, AsyncFn> = {
   findAccountByUser: commerceRepository.findAccountByUser.bind(commerceRepository),
+  findAccountByToken: commerceRepository.findAccountByToken.bind(commerceRepository),
   upsertAccountToken: commerceRepository.upsertAccountToken.bind(commerceRepository),
+  findTransactionById: commerceRepository.findTransactionById.bind(commerceRepository),
+  findTransactionByOriginalId: commerceRepository.findTransactionByOriginalId.bind(commerceRepository),
   getLatestMembership: commerceRepository.getLatestMembership.bind(commerceRepository),
   getPointsBalance: commerceRepository.getPointsBalance.bind(commerceRepository),
   processTransaction: commerceRepository.processTransaction.bind(commerceRepository),
@@ -177,6 +180,88 @@ async function main() {
     assert.equal(result.membership.tier, 'monthly');
     assert.equal(received.points_delta, null);
     assert.equal(received.membership_status, 'active');
+    assert.equal(received.will_auto_renew, false);
+  });
+
+  await run('sandbox TEST notification verifies and acknowledges without a transaction', async () => {
+    const signedPayload = fakeJws({
+      notificationType: 'TEST',
+      notificationUUID: 'notification-test-1',
+      data: { environment: 'Sandbox' },
+    });
+
+    const result = await commerceService.processAppStoreNotification(
+      { signedPayload },
+      'Sandbox',
+    );
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.ignored, true);
+    assert.equal(result.notification_type, 'TEST');
+  });
+
+  await run('subscription notification maps grace period and renewal state atomically', async () => {
+    const expiresDate = Date.now() - 60_000;
+    const gracePeriodExpiresDate = Date.now() + 3_600_000;
+    const transaction = transactionPayload({
+      transactionId: 'tx-notification-1',
+      originalTransactionId: 'tx-notification-1',
+      productId: 'com.zhizhi.membership.monthly',
+      expiresDate,
+      environment: 'Sandbox',
+    });
+    const signedPayload = fakeJws({
+      notificationType: 'DID_FAIL_TO_RENEW',
+      subtype: 'GRACE_PERIOD',
+      notificationUUID: 'notification-grace-1',
+      data: {
+        environment: 'Sandbox',
+        signedTransactionInfo: fakeJws(transaction),
+        signedRenewalInfo: fakeJws({
+          originalTransactionId: transaction.originalTransactionId,
+          productId: transaction.productId,
+          autoRenewStatus: 1,
+          isInBillingRetryPeriod: true,
+          gracePeriodExpiresDate,
+          environment: 'Sandbox',
+        }),
+      },
+    });
+    let received: any = null;
+    commerceRepository.findAccountByToken = async () => ({
+      user_id: 'user-1',
+      app_account_token: transaction.appAccountToken,
+      created_at: '2026-05-03T00:00:00.000Z',
+      updated_at: '2026-05-03T00:00:00.000Z',
+    });
+    commerceRepository.processTransaction = async (input: any) => {
+      received = input;
+      return {
+        duplicate: false,
+        membership: {
+          status: input.membership_status,
+          tier: input.membership_tier,
+          product_id: input.product_id,
+          original_transaction_id: input.original_transaction_id,
+          expires_at: input.expires_at,
+          environment: input.environment,
+          will_auto_renew: input.will_auto_renew,
+          grace_period_expires_at: input.grace_period_expires_at,
+        },
+        points: null,
+      };
+    };
+
+    const result = await commerceService.processAppStoreNotification(
+      { signedPayload },
+      'Sandbox',
+    );
+
+    assert.equal(result.accepted, true);
+    assert.equal(result.ignored, false);
+    assert.equal(received.membership_status, 'grace_period');
+    assert.equal(received.will_auto_renew, true);
+    assert.equal(received.grace_period_expires_at, new Date(gracePeriodExpiresDate).toISOString());
   });
 
   await run('revoked consumable produces an idempotent negative points delivery', async () => {
@@ -251,6 +336,11 @@ async function main() {
     assert.match(migration, /REVOKE ALL ON FUNCTION apply_commerce_points_delta/);
     assert.match(migration, /FROM PUBLIC, anon, authenticated/);
     assert.match(migration, /GRANT EXECUTE ON FUNCTION process_commerce_transaction[\s\S]*TO service_role/);
+
+    const catchAll = fs.readFileSync(path.resolve(__dirname, '../api/[...path].ts'), 'utf8');
+    assert.match(catchAll, /\/api\/commerce\/notifications\/apple/);
+    assert.match(catchAll, /\/api\/commerce\/notifications\/apple-sandbox/);
+    assert.match(catchAll, /\/api\/legal\/privacy/);
   });
 
   await run('consume points validates positive amount and maps balance', async () => {

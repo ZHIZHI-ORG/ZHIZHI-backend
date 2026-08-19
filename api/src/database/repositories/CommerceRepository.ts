@@ -20,6 +20,17 @@ export class CommerceRepository {
     return data as CommerceAccount;
   }
 
+  async findAccountByToken(appAccountToken: string): Promise<CommerceAccount | null> {
+    const { data, error } = await supabase
+      .from('commerce_accounts')
+      .select('*')
+      .eq('app_account_token', appAccountToken)
+      .single();
+
+    if (error || !data) return null;
+    return data as CommerceAccount;
+  }
+
   async upsertAccountToken(userId: string, appAccountToken: string): Promise<CommerceAccount> {
     const { data, error } = await supabase
       .from('commerce_accounts')
@@ -43,6 +54,19 @@ export class CommerceRepository {
       .from('commerce_transactions')
       .select('*')
       .eq('transaction_id', transactionId)
+      .single();
+
+    if (error || !data) return null;
+    return data as CommerceTransaction;
+  }
+
+  async findTransactionByOriginalId(originalTransactionId: string): Promise<CommerceTransaction | null> {
+    const { data, error } = await supabase
+      .from('commerce_transactions')
+      .select('*')
+      .eq('original_transaction_id', originalTransactionId)
+      .order('purchase_date', { ascending: false })
+      .limit(1)
       .single();
 
     if (error || !data) return null;
@@ -80,6 +104,8 @@ export class CommerceRepository {
       p_membership_tier: input.membership_tier,
       p_expires_at: input.expires_at,
       p_revoked_at: input.revoked_at,
+      p_will_auto_renew: input.will_auto_renew,
+      p_grace_period_expires_at: input.grace_period_expires_at,
       p_points_delta: input.points_delta,
     });
 

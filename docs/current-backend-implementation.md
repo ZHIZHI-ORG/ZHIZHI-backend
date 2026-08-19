@@ -123,6 +123,9 @@ StoreKit 交易
 | `api/api/commerce/transactions/sync.ts` | `POST /api/commerce/transactions/sync` | Protected | 幂等同步 StoreKit JWS 交易并更新会员/积分 |
 | `api/api/commerce/points/ledger.ts` | `GET /api/commerce/points/ledger` | Protected | 分页返回积分流水，page_size 最大 50 |
 | `api/api/commerce/points/consume.ts` | `POST /api/commerce/points/consume` | Protected | 正整数扣点 + `idempotency_key`，余额不足返回业务错误 |
+| `api/api/commerce/notifications/apple.ts` | `POST /api/commerce/notifications/apple` | Public, Apple-signed | 验证并处理 Production App Store Server Notifications V2 |
+| `api/api/commerce/notifications/apple-sandbox.ts` | `POST /api/commerce/notifications/apple-sandbox` | Public, Apple-signed | 验证并处理 Sandbox App Store Server Notifications V2 |
+| `api/api/legal/privacy.ts` | `GET/HEAD /api/legal/privacy` | Public | 返回 App 与订阅页使用的隐私政策 HTML |
 | `api/api/content/list.ts` | `GET /api/content/list` | Public | 按作者、类型、状态、标签和分页筛选内容 |
 | `api/api/content/create.ts` | `POST /api/content/create` | Protected | 校验并创建内容 |
 | `api/api/content/[id].ts` | `GET/PUT/DELETE /api/content/:id` | Conditional | GET 可匿名；PUT/DELETE 需要作者身份 |
@@ -179,6 +182,8 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 ### 4.6 StoreKit、会员和积分
 
 `commerceService.ts` 对商品 ID、交易 ID、original transaction ID、app account token、购买时间和 JWS payload 做一致性检查。生产运行时即使漏配开关也会强制 Apple Server Library 验签；开发/测试环境只有在未要求严格验签时才允许未验签 payload 解码。`020_commerce_transaction_atomicity.sql` 把交易记录与会员/积分交付收进同一数据库事务，重复请求会幂等返回或修复旧的半完成交付，积分退款会按当前余额幂等扣回。两个 `SECURITY DEFINER` 商业 RPC 都只授权 service role，不能由 anon/authenticated 直接加减积分。
+
+Production 与 Sandbox 分别使用独立 App Store Server Notifications V2 URL。通知外层 JWS、交易 JWS 与续订 JWS 都先验签；服务端按 `appAccountToken`，再按 transaction/original transaction 回查用户，原子更新续订、宽限期、billing retry、退款和撤销。`TEST` 通知会直接确认；`CONSUMPTION_REQUEST` 暂只确认接收，不提交 Apple 消耗信息，正式处理 consumable 退款争议前仍需补专门决策链路。
 
 ## 5. 数据库结构与迁移顺序
 
@@ -245,7 +250,7 @@ Recommendation V1 与下方 `/api/insights/*` 独立并存。它不新增盲派�
 | Supabase Auth email/Apple/Google providers | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 后端调用路径存在，Provider 状态未知 | 分别用有效/无效 token 验证登录合同 |
 | Gemini generation | EXTERNAL_UNVERIFIED | 2026-07-23 | V2 transport/Prompt/schema unit tests only | V2 没有 fallback；真实模型尚未调用 | 在 staging 配置固定模型，验证内容质量和失败路径 |
 | Recommendation V1 Gemini / behavioral loop | EXTERNAL_UNVERIFIED | 2026-08-05 | 本地 16-window/96-KB 检索、30 张 Structured Output、10+10+10 编排、机械事实/时间窗口引用和离线结构评测 | 未调用真实模型；未证明 30 张输出的延迟/截断、命理事件题材质量或 exposure/open 线上闭环 | 固定模型与匿名测试档案跑三批展示及下一候选池；人工审读样本、输入预算、token、延迟和下一次 AI 输入 |
-| Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-07-11 | Not probed in this documentation pass | 代码允许严格验签或未验签解码 | 生产强制验签并执行沙盒/生产交易回放 |
+| Apple StoreKit server verification | EXTERNAL_UNVERIFIED | 2026-08-19 | 12 个 commerce service tests、Sandbox TEST notification local smoke、iOS Commerce contract tests | 本地签名/通知/原子交付合同通过；真实 Apple JWS、商品与通知 URL 尚未配置 | App Store Connect 登录后配置商品与两个 V2 URL，执行真实 Sandbox 购买/恢复/退款 |
 | iOS end-to-end flows | EXTERNAL_UNVERIFIED | 2026-08-05 | 10+0 合同、剩 5 张预取边界和逐项展开隔离测试通过；Simulator build passed; no live API run | 上方推荐与下方真实 analysis/detail 链路已在源码解耦，未证明线上可用 | 部署 staging 后用真实账号、三柱和四柱档案验收三批大卡与独立逐项展开 |
 
 ## 8. 验证方案
@@ -301,6 +306,7 @@ Recommendation V1 已在本地工作树按“完整事实时间线 → 服务端
 - Gemini 无 key 时回退示例：开发可用不等于真实 AI 可用。
 - 首页日运 V2 不使用 Gemini 示例回退；缺 key、缺固定模型、超时或结构错误都会返回无正文状态。
 - StoreKit 只在非生产开发/测试环境允许未验签解码；生产缺证书、bundle ID、App Apple ID 或验签失败会直接拒绝交易。
+- `CONSUMPTION_REQUEST` 目前不回传用户消耗信息；上线消耗型积分退款争议自动化前必须补 Apple Consumption Information API 决策与审计。
 - 远端迁移未知：源码和 SQL 文件不能替代数据库 readback。
 - 文档检查只能证明结构化覆盖，不能自动证明业务描述完全正确。
 - 当前命理工作树未提交：整理文档不得吸收、改写或发布这些用户改动。

@@ -89,6 +89,8 @@ export interface CommerceTransactionProcessInput {
   membership_tier: string | null;
   expires_at: string | null;
   revoked_at: string | null;
+  will_auto_renew: boolean;
+  grace_period_expires_at: string | null;
   points_delta: number | null;
 }
 

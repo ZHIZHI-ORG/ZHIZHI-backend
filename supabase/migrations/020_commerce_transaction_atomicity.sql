@@ -25,6 +25,8 @@ CREATE OR REPLACE FUNCTION process_commerce_transaction(
   p_membership_tier TEXT DEFAULT NULL,
   p_expires_at TIMESTAMPTZ DEFAULT NULL,
   p_revoked_at TIMESTAMPTZ DEFAULT NULL,
+  p_will_auto_renew BOOLEAN DEFAULT false,
+  p_grace_period_expires_at TIMESTAMPTZ DEFAULT NULL,
   p_points_delta INTEGER DEFAULT NULL
 )
 RETURNS JSONB
@@ -139,8 +141,8 @@ BEGIN
       p_transaction_id,
       p_expires_at,
       p_environment,
-      false,
-      NULL,
+      p_will_auto_renew,
+      p_grace_period_expires_at,
       p_revoked_at,
       COALESCE(p_raw_payload, '{}'::jsonb)
     )
@@ -212,9 +214,9 @@ $$;
 
 REVOKE ALL ON FUNCTION process_commerce_transaction(
   UUID, TEXT, TEXT, TEXT, TEXT, UUID, TIMESTAMPTZ, TEXT, TEXT, TEXT,
-  JSONB, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INTEGER
+  JSONB, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, TIMESTAMPTZ, INTEGER
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION process_commerce_transaction(
   UUID, TEXT, TEXT, TEXT, TEXT, UUID, TIMESTAMPTZ, TEXT, TEXT, TEXT,
-  JSONB, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INTEGER
+  JSONB, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN, TIMESTAMPTZ, INTEGER
 ) TO service_role;
