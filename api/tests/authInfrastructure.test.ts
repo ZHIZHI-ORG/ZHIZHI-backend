@@ -7,16 +7,18 @@ process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key'
 const supabaseModule = require('../src/database/supabase');
 const { supabase, checkDatabaseHealth } = supabaseModule;
 const { userRepository } = require('../src/database/repositories/UserRepository');
-const { registerUser, resetPassword } = require('../src/services/authService');
+const { registerUser, resetPassword, logoutUser } = require('../src/services/authService');
 const { formatError, ServiceUnavailableError } = require('../src/utils/errors');
 
 const originalFrom = supabase.from.bind(supabase);
 const originalCreateServiceSupabaseClient = supabaseModule.createServiceSupabaseClient;
+const originalCreateUserSupabaseClient = supabaseModule.createUserSupabaseClient;
 const originalUserCreate = userRepository.create.bind(userRepository);
 
 function restoreMocks(): void {
   supabase.from = originalFrom;
   supabaseModule.createServiceSupabaseClient = originalCreateServiceSupabaseClient;
+  supabaseModule.createUserSupabaseClient = originalCreateUserSupabaseClient;
   userRepository.create = originalUserCreate;
 }
 
@@ -163,6 +165,29 @@ async function main(): Promise<void> {
     });
 
     assert.equal(persistedPassword, password);
+  });
+
+  await run('ordinary logout revokes only the current device session', async () => {
+    const accessToken = 'current-device-access-token';
+    let receivedAccessToken: string | undefined;
+    let receivedScope: string | undefined;
+
+    supabaseModule.createUserSupabaseClient = (token: string) => {
+      receivedAccessToken = token;
+      return {
+        auth: {
+          async signOut(options: { scope?: string }) {
+            receivedScope = options.scope;
+            return { error: null };
+          },
+        },
+      };
+    };
+
+    await logoutUser(accessToken);
+
+    assert.equal(receivedAccessToken, accessToken);
+    assert.equal(receivedScope, 'local');
   });
 
   console.log('Auth infrastructure tests passed');

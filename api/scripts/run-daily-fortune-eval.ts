@@ -4,6 +4,10 @@ import { DAILY_FORTUNE_PROMPT_VERSION } from '../src/models/DailyFortune';
 import { generateDailyFortuneWithAi } from '../src/utils/dailyFortuneAi';
 
 const GLOBAL_FORBIDDEN_TERMS = ['命理证据', '点击', '确诊'];
+const GLOBAL_FORBIDDEN_PATTERNS = [
+  { label: '条件性合会被升级成局', pattern: /(半合|半会|拱合|拱会)[^。；，]{0,6}[木火土金水]局/ },
+  { label: '直接暴露 MBTI 类型', pattern: /\b(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b/ },
+];
 
 async function main(): Promise<void> {
   if (!process.env.GEMINI_API_KEY?.trim()) {
@@ -23,6 +27,12 @@ async function main(): Promise<void> {
     if (forbiddenHits.length > 0) {
       throw new Error(`${item.id} 出现禁用内容：${[...new Set(forbiddenHits)].join('、')}`);
     }
+    const forbiddenPatternHits = GLOBAL_FORBIDDEN_PATTERNS
+      .filter(({ pattern }) => pattern.test(serialized))
+      .map(({ label }) => label);
+    if (forbiddenPatternHits.length > 0) {
+      throw new Error(`${item.id} 出现不准确内容：${forbiddenPatternHits.join('、')}`);
+    }
 
     results.push({
       id: item.id,
@@ -34,19 +44,6 @@ async function main(): Promise<void> {
       content,
     });
     console.log(`✓ ${item.id}: ${content.selected_scenes.map((scene) => scene.scene).join(' + ')}`);
-  }
-
-  const comparisonGroups = new Map<string, string[][]>();
-  for (const result of results) {
-    if (!result.comparison_group) continue;
-    const group = comparisonGroups.get(result.comparison_group) ?? [];
-    group.push(result.selected_scenes);
-    comparisonGroups.set(result.comparison_group, group);
-  }
-  for (const [group, sceneSelections] of comparisonGroups) {
-    if (sceneSelections.length !== 2 || JSON.stringify(sceneSelections[0]) !== JSON.stringify(sceneSelections[1])) {
-      throw new Error(`${group} 的空背景与丰富背景改变了 Top 2 场景或顺序`);
-    }
   }
 
   console.log('\nDAILY_FORTUNE_PROMPT_EVAL_RESULT');

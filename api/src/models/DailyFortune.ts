@@ -1,7 +1,7 @@
 import type { DailyFortuneUserContext } from './DailyFortuneContext';
 
 export const DAILY_FORTUNE_CONTRACT_VERSION = 'daily_fortune_ai_first_v3' as const;
-export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v11' as const;
+export const DAILY_FORTUNE_PROMPT_VERSION = 'daily_fortune_prompt_v16' as const;
 
 export const DAILY_FORTUNE_SCENES = [
   'career',
@@ -81,6 +81,9 @@ export interface DailyFortuneTimingPillar {
   end_date?: string | null;
   start_year?: number;
   end_year?: number;
+  age_start?: number;
+  age_end?: number;
+  label?: string | null;
   solar_term?: string | null;
 }
 

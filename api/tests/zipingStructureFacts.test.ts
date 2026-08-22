@@ -98,6 +98,78 @@ async function main(): Promise<void> {
   );
   assertNoForbiddenKeys(zipingRegularFacts);
 
+  const onlyHourCompletesSupport = {
+    dayMaster: '甲',
+    dayMasterElement: '木',
+    year: pillar('丙', '午', '食神', [
+      { stem: '丁', tenGod: '伤官', element: '火' },
+      { stem: '己', tenGod: '正财', element: '土' },
+    ]),
+    month: pillar('戊', '戌', '偏财', [
+      { stem: '戊', tenGod: '偏财', element: '土' },
+      { stem: '辛', tenGod: '正官', element: '金' },
+      { stem: '丁', tenGod: '伤官', element: '火' },
+    ]),
+    day: pillar('甲', '申', '日主', [
+      { stem: '庚', tenGod: '七杀', element: '金' },
+    ]),
+    time: pillar('庚', '寅', '七杀', [
+      { stem: '甲', tenGod: '比肩', element: '木' },
+      { stem: '丙', tenGod: '食神', element: '火' },
+      { stem: '戊', tenGod: '偏财', element: '土' },
+    ]),
+  };
+  const knownHourFacts = buildZipingStructureFacts({
+    ...onlyHourCompletesSupport,
+    patternCandidates: buildPatternCandidates(onlyHourCompletesSupport),
+  });
+  const { time: _unknownInternalNoon, ...threePillarInput } = onlyHourCompletesSupport;
+  const threePillarFacts = buildZipingStructureFacts({
+    ...threePillarInput,
+    patternCandidates: buildPatternCandidates(threePillarInput),
+  });
+  const threePillarJson = JSON.stringify(threePillarFacts);
+  assert.equal(knownHourFacts.hour_precision, 'known');
+  assert.deepEqual(knownHourFacts.observed_pillars, ['year', 'month', 'day', 'time']);
+  assert.equal(threePillarFacts.hour_precision, 'unknown');
+  assert.deepEqual(threePillarFacts.observed_pillars, ['year', 'month', 'day']);
+  assert.ok(!threePillarJson.includes('"position":"time"') && !threePillarJson.includes('"branch_position":"time"'));
+  assert.ok(!threePillarJson.includes('时柱'), '三柱结构不得序列化内部中午占位或时柱证据');
+  assert.ok(!threePillarJson.includes('follow_weak_material') && !threePillarJson.includes('follow_strong_material'));
+  assert.ok(!threePillarJson.includes('limited_support') && !threePillarJson.includes('without_wealth'));
+  assert.ok(!threePillarJson.includes('日主无根气事实') && !threePillarJson.includes('财星材料未见'));
+  assert.ok(threePillarFacts.notes.some((note: string) => note.includes('已知三柱范围内未见')));
+
+  const hourOnlyRootWealthOfficer = {
+    dayMaster: '甲',
+    dayMasterElement: '木',
+    year: pillar('丙', '午', '食神', [{ stem: '丁', tenGod: '伤官', element: '火' }]),
+    month: pillar('丙', '午', '食神', [{ stem: '丁', tenGod: '伤官', element: '火' }]),
+    day: pillar('甲', '午', '日主', [{ stem: '丁', tenGod: '伤官', element: '火' }]),
+    time: pillar('庚', '寅', '七杀', [
+      { stem: '甲', tenGod: '比肩', element: '木' },
+      { stem: '戊', tenGod: '偏财', element: '土' },
+      { stem: '辛', tenGod: '正官', element: '金' },
+    ]),
+  };
+  const allFourEvidence = buildZipingStructureFacts({
+    ...hourOnlyRootWealthOfficer,
+    patternCandidates: buildPatternCandidates(hourOnlyRootWealthOfficer),
+  });
+  assert.ok(allFourEvidence.day_master_facts.roots.some((fact: any) => fact.branch_position === 'time'));
+  assert.ok(allFourEvidence.day_master_facts.pressure_facts.wealth.some((fact: any) => fact.position === 'time'));
+  assert.ok(allFourEvidence.day_master_facts.pressure_facts.officer_killing.some((fact: any) => fact.position === 'time'));
+  const { time: _onlyHourEvidence, ...knownThreePillars } = hourOnlyRootWealthOfficer;
+  const withoutUnknownHour = buildZipingStructureFacts({
+    ...knownThreePillars,
+    patternCandidates: buildPatternCandidates(knownThreePillars),
+  });
+  const withoutUnknownHourJson = JSON.stringify(withoutUnknownHour);
+  assert.equal(withoutUnknownHour.day_master_facts.roots.length, 0);
+  assert.equal(withoutUnknownHour.day_master_facts.pressure_facts.wealth.length, 0);
+  assert.equal(withoutUnknownHour.day_master_facts.pressure_facts.officer_killing.length, 0);
+  assert.ok(!/\u65e0根|\u65e0财|\u65e0官|\u4ece弱|\u4ece强|follow_weak|follow_strong|without_wealth|limited_support/.test(withoutUnknownHourJson));
+
   const zipingRegularBrief = buildZipingAiBrief(zipingRegularFacts);
   assert.ok(
     zipingRegularBrief.pattern_candidates.some((candidate: any) =>
@@ -129,6 +201,56 @@ async function main(): Promise<void> {
     '多项地支作用应完整列出，不使用等N项截断'
   );
   assert.ok(!JSON.stringify(chart1980.zipingAiBrief.gan_zhi_effects).includes('等'), '干支作用 JSON 不应截断为等N项');
+
+  const coPresenceWithoutStemControl = {
+    dayMaster: '甲',
+    dayMasterElement: '木',
+    year: pillar('甲', '子', '比肩'),
+    month: pillar('甲', '午', '比肩'),
+    day: pillar('甲', '辰', '日主'),
+    time: pillar('甲', '酉', '比肩'),
+  };
+  const coPresenceFacts = buildZipingStructureFacts({
+    ...coPresenceWithoutStemControl,
+    patternCandidates: buildPatternCandidates(coPresenceWithoutStemControl),
+  });
+  assert.deepEqual(
+    coPresenceFacts.yongshen_basis_facts.tongguan.conflict_facts,
+    [],
+    '五行同时出现但没有相邻显干相克时，不得生成通关冲突候选',
+  );
+  assert.deepEqual(
+    coPresenceFacts.yongshen_basis_facts.tongguan.mediating_elements_by_rule,
+    [],
+    '没有显式相克时不得继续派生通关中介元素',
+  );
+
+  const adjacentMetalControlsWood = {
+    dayMaster: '丙',
+    dayMasterElement: '火',
+    year: pillar('庚', '子', '偏财'),
+    month: pillar('甲', '午', '偏印'),
+    day: pillar('丙', '辰', '日主'),
+    time: pillar('丁', '酉', '劫财'),
+  };
+  const explicitControlFacts = buildZipingStructureFacts({
+    ...adjacentMetalControlsWood,
+    patternCandidates: buildPatternCandidates(adjacentMetalControlsWood),
+  });
+  assert.deepEqual(
+    explicitControlFacts.yongshen_basis_facts.tongguan.conflict_facts,
+    [{
+      elements: ['金', '木'],
+      source_relations: ['庚金克甲木'],
+      mediating_element_by_rule: '水',
+    }],
+    '相邻显干庚克甲只保留一个金木冲突候选',
+  );
+  assert.deepEqual(
+    explicitControlFacts.yongshen_basis_facts.tongguan.mediating_elements_by_rule,
+    [{ element: '水', basis: '金木交战取水通关' }],
+    '显式金克木继续派生水通关材料',
+  );
 
   console.log('ziping structure facts validation passed');
 }

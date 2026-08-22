@@ -68,7 +68,8 @@ interface PatternCandidateChartInput {
   year: PillarData;
   month: PillarData;
   day: PillarData;
-  time: PillarData;
+  /** Missing birth hour is represented by omission, never a synthetic noon pillar. */
+  time?: PillarData;
   weightedWuxing?: WeightedWuxingAnalysis;
 }
 
@@ -323,8 +324,9 @@ function buildAuxiliaryCandidates(chart: PatternCandidateChartInput, monthComman
   const seen = new Set<string>();
   return (['year', 'month', 'time'] as const).flatMap((position) => {
     const pillar = chart[position];
-    const auxiliaryPattern = REGULAR_PATTERN_BY_TEN_GOD[pillar?.tenGod];
-    if (!pillar?.stem || !pillar?.tenGod || !auxiliaryPattern) return [];
+    if (!pillar?.stem || !pillar.tenGod) return [];
+    const auxiliaryPattern = REGULAR_PATTERN_BY_TEN_GOD[pillar.tenGod];
+    if (!auxiliaryPattern) return [];
     if (pillar.stem === monthCommand.stem && pillar.tenGod === monthCommand.tenGod) return [];
 
     const key = `${pillar.stem}:${pillar.tenGod}`;
@@ -379,19 +381,21 @@ function buildMixedQiCandidates(chart: PatternCandidateChartInput, monthHidden: 
 
 function buildLuRenUsableGodCandidates(chart: PatternCandidateChartInput): LuRenUsableGodCandidate[] {
   const visibleCandidates: LuRenUsableGodCandidate[] = (['year', 'month', 'time'] as const)
-    .map(position => ({ position, pillar: chart[position] }))
-    .filter(({ pillar }) => pillar?.stem && USEFUL_TEN_GODS_FOR_LU_REN.has(pillar.tenGod))
-    .map(({ position, pillar }) => ({
-      id: `lu_ren_${pillar.tenGod}_${position}_stem_candidate`,
-      tenGod: pillar.tenGod,
-      stem: pillar.stem,
-      element: pillar.stemElement || hiddenElementForStem(chart, pillar.stem),
-      source: 'visible_stem' as const,
-      position,
-      confidence: position === 'month' ? 'high' : 'medium',
-      evidence: [`${PILLAR_LABELS[position]}天干${pillar.stem}透出${pillar.tenGod}，可作为建禄月劫另取之神候选`],
-      notes: ['阶段一只列出建禄月劫的可用之神候选，是否可用留到阶段二检查成败救应。'],
-    }));
+    .flatMap((position) => {
+      const pillar = chart[position];
+      if (!pillar?.stem || !pillar.tenGod || !USEFUL_TEN_GODS_FOR_LU_REN.has(pillar.tenGod)) return [];
+      return [{
+        id: `lu_ren_${pillar.tenGod}_${position}_stem_candidate`,
+        tenGod: pillar.tenGod,
+        stem: pillar.stem,
+        element: pillar.stemElement || hiddenElementForStem(chart, pillar.stem),
+        source: 'visible_stem' as const,
+        position,
+        confidence: position === 'month' ? 'high' as const : 'medium' as const,
+        evidence: [`${PILLAR_LABELS[position]}天干${pillar.stem}透出${pillar.tenGod}，可作为建禄月劫另取之神候选`],
+        notes: ['阶段一只列出建禄月劫的可用之神候选，是否可用留到阶段二检查成败救应。'],
+      }];
+    });
   const branchCandidates = buildLuRenBranchUsableGodCandidates(chart);
   return [...visibleCandidates, ...branchCandidates];
 }
@@ -509,6 +513,7 @@ function findPenetration(
 function findRoots(chart: PatternCandidateChartInput, stem: string): PatternRootEvidence[] {
   return (['month', 'day', 'time', 'year'] as const).flatMap((position) => {
     const pillar = chart[position];
+    if (!pillar) return [];
     const index = (pillar?.hiddenStems || []).findIndex(hidden => hidden.stem === stem);
     if (index < 0) return [];
     const qi = QI_LABELS[index] || 'residual';
@@ -606,7 +611,7 @@ function buildLockNotes(
 function buildSupportSignals(chart: PatternCandidateChartInput, tenGod: string): string[] {
   const visibleTenGods = [chart.year, chart.month, chart.time]
     .map(pillar => pillar?.tenGod)
-    .filter(Boolean);
+    .filter((value): value is string => Boolean(value));
   const allHiddenTenGods = (['year', 'month', 'day', 'time'] as const)
     .flatMap(position => chart[position]?.hiddenStems || [])
     .map(hidden => hidden.tenGod);

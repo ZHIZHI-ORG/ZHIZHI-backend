@@ -32,6 +32,10 @@ import fortuneDailyV2Handler from './v2/fortune/daily';
 import recommendationNextHandler from './v2/recommendations/next';
 import recommendationEventsHandler from './v2/recommendations/events';
 import recommendationBatchHandler from './v2/recommendations/[batchId]';
+import mediumInsightDailyHandler from './v2/insights/medium/daily';
+import mediumInsightEventsHandler from './v2/insights/medium/events';
+import insightDetailsV2Handler from './v2/insights/details';
+import insightFollowUpsV2Handler from './v2/insights/follow-ups';
 
 import insightCardsHandler from './insights/cards';
 import insightAnalysisHandler from './insights/analysis';
@@ -82,6 +86,10 @@ const routes: Record<string, Handler> = {
   '/api/v2/fortune/daily': fortuneDailyV2Handler,
   '/api/v2/recommendations/next': recommendationNextHandler,
   '/api/v2/recommendations/events': recommendationEventsHandler,
+  '/api/v2/insights/medium/daily': mediumInsightDailyHandler,
+  '/api/v2/insights/medium/events': mediumInsightEventsHandler,
+  '/api/v2/insights/details': insightDetailsV2Handler,
+  '/api/v2/insights/follow-ups': insightFollowUpsV2Handler,
 
   '/api/insights/cards': insightCardsHandler,
   '/api/insights/analysis': insightAnalysisHandler,
@@ -190,6 +198,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (/^\/api\/v2\/recommendations\/[^/]+$/.test(url.pathname)) {
       return recommendationBatchHandler(req, res);
+    }
+    if (url.pathname === '/api/v2/insights/medium/daily') {
+      return mediumInsightDailyHandler(req, res);
+    }
+    if (url.pathname === '/api/v2/insights/medium/events') {
+      return mediumInsightEventsHandler(req, res);
+    }
+    if (url.pathname === '/api/v2/insights/details') {
+      return insightDetailsV2Handler(req, res);
+    }
+    if (url.pathname === '/api/v2/insights/follow-ups') {
+      return insightFollowUpsV2Handler(req, res);
     }
     return res.status(200).send('');
   }

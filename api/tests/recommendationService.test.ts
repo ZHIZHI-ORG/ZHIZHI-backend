@@ -112,6 +112,28 @@ function bundle(relationshipStatus: string | null = null) {
         interaction('liuyue-to-day-branch', timingParticipant, participant),
       ],
     },
+    zipingStructureFacts: {
+      method_version: 'ziping_structure_v2_fact_layer',
+      hour_precision: 'unknown',
+      observed_pillars: ['year', 'month', 'day'],
+      month_command: { month_branch: '未', command_stem: '己', command_ten_god: '比肩' },
+      day_master_facts: {
+        day_master: '己', element: '土',
+        season_state: { month_branch: '未', state: '旺', basis: 'fixture' },
+      },
+      pattern_candidates: {
+        regular: [], mixed_qi: [], auxiliary: [],
+        usable_god_materials_for_lu_ren: [], notes: [],
+      },
+      yongshen_basis_facts: {
+        summary_materials: {
+          supporting_materials: [{ kind: 'element', value: '火', sources: ['调候:fixture'] }],
+          opposing_materials: [{ kind: 'ten_god', value: '正官', sources: ['格局冲突:fixture'] }],
+          conflicting_materials: [],
+        },
+        notes: ['fixture'],
+      },
+    },
   } as any;
 }
 
@@ -396,6 +418,16 @@ async function main(): Promise<void> {
     assert.deepEqual(
       capturedInput.reality_context.saved_understanding.behavior_signals,
       ['偏好具体时间点'],
+    );
+    assert.deepEqual(
+      capturedInput.structure_facts.map((fact: any) => fact.source),
+      ['month_command', 'day_master_capacity', 'pattern_candidates', 'yongshen_basis'],
+      '大卡 discovery 必须冻结并携带四块命理结构底座，供点击详情复用',
+    );
+    assert.equal(
+      JSON.stringify(capturedInput.structure_facts).includes('summary_materials'),
+      false,
+      '大卡 structure facts 必须使用收窄后的新卡投影',
     );
     const currentFactsJson = JSON.stringify(capturedInput.fortune_facts);
     assert.equal(currentFactsJson.includes('domain_candidates'), false);

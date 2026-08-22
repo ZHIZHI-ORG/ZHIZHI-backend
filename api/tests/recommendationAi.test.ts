@@ -26,6 +26,12 @@ function recommendationInput() {
       natal: { pillars: [{ position: 'day', gan_zhi: '乙酉' }] },
       mingli_interactions: { natal: [] },
     },
+    structure_facts: [
+      { ref: 'S1', source: 'month_command', fact_payload: { value: { month_branch: '申' } } },
+      { ref: 'S2', source: 'day_master_capacity', fact_payload: { value: { day_master: '乙' } } },
+      { ref: 'S3', source: 'pattern_candidates', fact_payload: { value: { regular: [] } } },
+      { ref: 'S4', source: 'yongshen_basis', fact_payload: { value: { notes: ['依据材料'] } } },
+    ],
     time_windows: [{
       window_key: 'liuyue:2026-08-07:丙戌',
       kind: 'liuyue',
@@ -125,7 +131,7 @@ function rawCard(index: number, overrides: Record<string, unknown> = {}) {
     },
     question: `下个月这件事会怎样发展 ${index}？`,
     preview: `这张卡片根据当前流月和原局事实，说明接下来值得留意的变化 ${index}。`,
-    body: `这里是完整解释 ${index}。它会把命理事实转成用户可理解的现实问题，同时保持条件化表达并给出观察角度。`,
+    body: `这是当前卡片的简短答案 ${index}。${'它只说明当前时间窗口内值得观察的条件和现实信号，不替用户下结论。'.repeat(3)}`,
     ...overrides,
   };
 }
@@ -195,7 +201,8 @@ async function main(): Promise<void> {
     assert.equal(capturedRequest.timeoutMs, 90_000);
     assert.equal(capturedRequest.maxProviderResponseBytes, 256 * 1024);
     assert.equal(capturedRequest.generationConfig.candidateCount, 1);
-    assert.equal(capturedRequest.generationConfig.maxOutputTokens, 16384);
+    assert.equal(capturedRequest.generationConfig.maxOutputTokens, 32768);
+    assert.equal(capturedRequest.generationConfig.thinkingConfig.thinkingLevel, 'medium');
     assert.equal(capturedRequest.generationConfig.responseMimeType, 'application/json');
     assert.deepEqual(
       capturedRequest.generationConfig.responseJsonSchema
@@ -227,9 +234,21 @@ async function main(): Promise<void> {
     assert.ok(capturedRequest.systemPrompt.includes('以真实行为和明确资料为准'));
     assert.ok(capturedRequest.userPrompt.startsWith(RECOMMENDATION_DEVELOPER_PROMPT));
     assert.ok(capturedRequest.userPrompt.includes('30 张完整的上方推荐大卡候选'));
+    assert.ok(capturedRequest.userPrompt.includes('question 是内部检索与完整解读使用的具体问题'));
+    assert.ok(capturedRequest.userPrompt.includes('不在上方大卡卡面展示'));
+    assert.ok(capturedRequest.userPrompt.includes('preview 是上方大卡直接展示的主标题'));
+    assert.ok(capturedRequest.userPrompt.includes('body 是卡面展示的内容预览'));
+    assert.ok(capturedRequest.userPrompt.includes('用户可能产生的真实感受'));
     assert.ok(capturedRequest.systemPrompt.includes('命理事实决定哪些题材有资格出现'));
-    assert.ok(capturedRequest.userPrompt.includes('争吵、分手风险、新桃花'));
+    assert.ok(capturedRequest.systemPrompt.includes('争吵、分手风险、新桃花'));
+    assert.ok(capturedRequest.userPrompt.includes('目标为 100–150 个中文字符'));
+    assert.ok(capturedRequest.userPrompt.includes('另行生成500–800字完整正文'));
     assert.ok(capturedRequest.userPrompt.includes('不输出 candidate_id、position、surface、validity'));
+    assert.ok(capturedRequest.userPrompt.includes('不得从五行、十神、寒热燥湿或合冲刑害推导'));
+    assert.ok(capturedRequest.userPrompt.includes('器官、疾病、体质、睡眠质量或医学症状'));
+    assert.ok(capturedRequest.userPrompt.includes('调候材料也不是健康事实'));
+    assert.ok(capturedRequest.userPrompt.includes('拿不准时不要生成该健康卡'));
+    assert.ok(capturedRequest.userPrompt.includes('必须先改写为有事实引用的条件性观察'));
     const promptInput = JSON.parse(capturedRequest.userPrompt.split('recommendation_input:\n')[1]);
     const expectedInput = recommendationInput();
     const { available_fact_refs: _expectedRefs, ...expectedWithoutRefs } = expectedInput;
@@ -281,6 +300,85 @@ async function main(): Promise<void> {
     assert.ok(generated.generation_metrics.input_json_bytes > 0);
     assert.ok(generated.generation_metrics.request_bytes > 0);
 
+    const marginalBody = validContent();
+    marginalBody.candidates[0] = rawCard(0, { body: '甲'.repeat(96) });
+    const marginalGenerated = await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      { async generate() { return providerResponse(marginalBody); } },
+    );
+    assert.equal(
+      Array.from(marginalGenerated.candidates[0].body).length,
+      96,
+      'a harmless four-character shortfall must not discard the entire 30-card pool',
+    );
+
+    for (const length of [89, 161]) {
+      const driftedBody = validContent();
+      driftedBody.candidates[0] = rawCard(0, { body: '甲'.repeat(length) });
+      const accepted = await generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(driftedBody); } },
+      );
+      assert.equal(Array.from(accepted.candidates[0].body).length, length);
+    }
+
+    const emptyBody = validContent();
+    emptyBody.candidates[0] = rawCard(0, { body: '   ' });
+    await expectAiError(
+      generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(emptyBody); } },
+      ),
+      'invalid_schema',
+    );
+
+    const oversizedPreview = validContent();
+    oversizedPreview.candidates[0] = rawCard(0, { preview: '甲'.repeat(65) });
+    await expectAiError(
+      generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(oversizedPreview); } },
+      ),
+      'invalid_schema',
+    );
+
+    const benignGuarantee = validContent();
+    benignGuarantee.candidates[0] = rawCard(0, {
+      body: `复核流程可以保证表达前后保持一致。${'这段补充文字只用于保持长度合同。'.repeat(7)}`,
+    });
+    const benignGuaranteeResult = await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      { async generate() { return providerResponse(benignGuarantee); } },
+    );
+    assert.equal(benignGuaranteeResult.candidates.length, 30);
+
+    const unsafeGuarantee = validContent();
+    unsafeGuarantee.candidates[0] = rawCard(0, {
+      body: `这项安排保证投资收益。${'这段补充文字只用于保持长度合同。'.repeat(7)}`,
+    });
+    const unsafeGuaranteeResult = await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      { async generate() { return providerResponse(unsafeGuarantee); } },
+    );
+    assert.ok(unsafeGuaranteeResult.candidates[0].body.includes('保证投资收益'));
+
+    const promptOwnedSemantics = validContent();
+    promptOwnedSemantics.candidates[2] = rawCard(2, {
+      body: `命盘直接说明骨骼状态。${'这段补充文字只用于保持长度合同。'.repeat(7)}`,
+    });
+    promptOwnedSemantics.candidates[5] = rawCard(5, {
+      event_hypothesis: {
+        ...rawCard(5).event_hypothesis,
+        summary: '流月会直接导致神经衰弱',
+      },
+    });
+    const semanticResult = await generateRecommendationCandidatesWithAi(
+      recommendationInput(),
+      { async generate() { return providerResponse(promptOwnedSemantics); } },
+    );
+    assert.ok(semanticResult.candidates[2].body.includes('骨骼'));
+    assert.ok(semanticResult.candidates[5].event_hypothesis.summary.includes('神经衰弱'));
+
     // Daily fortune intentionally supports a longer timeout than recommendations.
     // A valid daily-fortune setting must never leak into the recommendation client.
     process.env.DAILY_FORTUNE_AI_TIMEOUT_MS = '120000';
@@ -307,20 +405,15 @@ async function main(): Promise<void> {
     );
     delete process.env.DAILY_FORTUNE_AI_TIMEOUT_MS;
 
-    // This intentionally contains wording that the prompt tells the model not
-    // to produce. It is accepted here to prove that the server does not add a
-    // keyword blacklist or a second semantic judge after the model response.
-    const mechanicalOnly = validContent();
-    mechanicalOnly.candidates[0] = rawCard(0, {
-      body: '你们一定会分手，这段文字故意测试服务端不会用关键词判断命理语义，而只保存结构正确且引用存在的模型输出。',
+    const unsafeAbsolute = validContent();
+    unsafeAbsolute.candidates[0] = rawCard(0, {
+      body: `你们一定会分手。${'这段补充文字只用于保持长度合同。'.repeat(7)}`,
     });
-    const idsForSemanticPass = Array.from({ length: 30 }, (_, index) => `semantic-${index}`);
-    const semanticPass = await generateRecommendationCandidatesWithAi(
+    const unsafeAbsoluteResult = await generateRecommendationCandidatesWithAi(
       recommendationInput(),
-      { async generate() { return providerResponse(mechanicalOnly); } },
-      () => idsForSemanticPass.shift() as string,
+      { async generate() { return providerResponse(unsafeAbsolute); } },
     );
-    assert.ok(semanticPass.candidates[0].body.includes('一定会分手'));
+    assert.ok(unsafeAbsoluteResult.candidates[0].body.includes('一定会分手'));
 
     const unknownRef = validContent();
     unknownRef.candidates[0].event_hypothesis.fact_refs = ['does-not-exist'];
@@ -371,12 +464,13 @@ async function main(): Promise<void> {
         fact_refs: ['F1'],
       },
     });
-    const natalPass = await generateRecommendationCandidatesWithAi(
-      recommendationInput(),
-      { async generate() { return providerResponse(natalBaseline); } },
+    await expectAiError(
+      generateRecommendationCandidatesWithAi(
+        recommendationInput(),
+        { async generate() { return providerResponse(natalBaseline); } },
+      ),
+      'invalid_schema',
     );
-    assert.equal(natalPass.candidates[0].primary_time_window_key, null);
-    assert.deepEqual(natalPass.candidates[0].referenced_window_keys, []);
 
     const extraProperty = validContent() as any;
     extraProperty.candidates[0].rank_score = 1;

@@ -16,7 +16,6 @@ type EvalCase = typeof recommendationStructuralCorpus[number];
 
 const QUESTION_JOBS = ['describe', 'explain', 'forecast', 'compare', 'act'];
 const EVENT_FAMILIES = [
-  'baseline_pattern',
   'cycle_background',
   'direct_activation',
   'opportunity',
@@ -99,6 +98,12 @@ function inputFor(item: EvalCase, overrides: Record<string, unknown> = {}): any 
         natal: [],
       },
     },
+    structure_facts: [
+      { ref: 'S1', source: 'month_command', fact_payload: { value: {} } },
+      { ref: 'S2', source: 'day_master_capacity', fact_payload: { value: {} } },
+      { ref: 'S3', source: 'pattern_candidates', fact_payload: { value: {} } },
+      { ref: 'S4', source: 'yongshen_basis', fact_payload: { value: {} } },
+    ],
     time_windows: [
       {
         window_key: 'dayun:2020:乙酉',
@@ -203,7 +208,7 @@ function rawCard(item: EvalCase, index: number, factRefs = [factAlias(item)]) {
     },
     question: `当前阶段你最值得留意的${item.domain}变化是什么？`,
     preview: `这张卡只引用本次确定性命理事实，并围绕${item.domain}提供条件性的观察方向。`,
-    body: '这是一段用于离线结构验收的完整说明。它只描述在已知事实范围内可以进一步查看的可能变化，不把任何现实事件写成已经发生或必然发生，并保留用户条件和时间窗口。',
+    body: '这是一段用于离线结构验收的即时短判断。它只描述在已知事实范围内可以进一步查看的可能变化，不把任何现实事件写成已经发生的确定结果，并保留用户条件和时间窗口；还会提醒用户结合真实状态验证，不把输入中没有的关系、经历或结果补写出来。',
   };
 }
 
@@ -288,11 +293,23 @@ async function main(): Promise<void> {
 
   try {
     assert.equal(recommendationStructuralCorpus.length, 100);
+    let rejectedBaselineCases = 0;
     for (const item of recommendationStructuralCorpus) {
-      await evaluateCase(item);
+      if (item.horizon === 'baseline') {
+        await expectAiError(
+          generateRecommendationCandidatesWithAi(inputFor(item), {
+            async generate() { return response(validOutput(item)); },
+          }),
+          'invalid_schema',
+        );
+        rejectedBaselineCases += 1;
+      } else {
+        await evaluateCase(item);
+      }
     }
+    assert.ok(rejectedBaselineCases > 0, 'V8 大卡必须拒绝已迁移到中卡的 baseline 稳定模式');
 
-    const sample = recommendationStructuralCorpus[0];
+    const sample = recommendationStructuralCorpus.find((item) => item.horizon === 'month')!;
     await expectAiError(
       generateRecommendationCandidatesWithAi(inputFor(sample), {
         async generate() {

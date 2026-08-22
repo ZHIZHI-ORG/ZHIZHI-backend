@@ -40,7 +40,11 @@ import {
 import { buildBaziBasicInfo } from '../utils/baziBasicInfo';
 import { buildMingliAiContext } from '../utils/mingliAiContext';
 import { buildPatternCandidates } from '../utils/patternJudgement';
-import { buildZipingAiBrief, buildZipingStructureFacts } from '../utils/zipingStructureFacts';
+import {
+  buildZipingAiBrief,
+  buildZipingStructureFacts,
+  ZipingStructureFactsResult,
+} from '../utils/zipingStructureFacts';
 import { parseDailyFortuneProfileContextInput } from '../utils/dailyFortuneUserContext';
 import { normalizeBirthTimeForBazi } from './trueSolarTimeService';
 
@@ -728,28 +732,15 @@ function buildBaziChartFromProfile(profile: BaziProfile) {
   const profileHasKnownHour = hasKnownBirthHour(profile);
   const interactionChart = projectChartToActualNatalPillars(chart, profileHasKnownHour);
   const weightedWuxing = chart.weightedWuxing || chart.weighted_wuxing_analysis || calculateWeightedWuxingFromChart(chart);
-  const patternCandidates = chart.patternCandidates || chart.pattern_candidates || buildPatternCandidates({
-    dayMaster: chart.dayMaster || profile.day_master || '',
-    year: chart.year,
-    month: chart.month,
-    day: chart.day,
-    time: chart.time,
+  const { patternCandidates, zipingStructureFacts } = resolveZipingStructureFacts(
+    profile,
+    chart,
     weightedWuxing,
-  });
+    profileHasKnownHour,
+  );
   const existingZipingBrief = chart.zipingAiBrief
     || chart.ziping_ai_brief
     || (chart.ziping_structure?.method_version === 'ziping_ai_brief_v1' ? chart.ziping_structure : null);
-  const zipingStructureFacts = chart.zipingStructureFacts
-    || (chart.ziping_structure?.method_version === 'ziping_structure_v2_fact_layer' ? chart.ziping_structure : null)
-    || buildZipingStructureFacts({
-      dayMaster: chart.dayMaster || profile.day_master || '',
-      dayMasterElement: chart.dayMasterElement || profile.day_master_element || '',
-      year: chart.year,
-      month: chart.month,
-      day: chart.day,
-      time: chart.time,
-      patternCandidates,
-    });
   const zipingAiBrief = existingZipingBrief || buildZipingAiBrief(zipingStructureFacts);
   const baziBasicInfo = buildBaziBasicInfo({ profile, chart });
   const natalInteractions = buildNatalMingliInteractions(interactionChart);
@@ -797,6 +788,39 @@ function buildBaziChartFromProfile(profile: BaziProfile) {
       birth_latitude: profile.birth_latitude ?? (profileHasKnownHour ? chart.calculationInfo?.trueSolarTime?.latitude ?? null : null),
     },
   };
+}
+
+function resolveZipingStructureFacts(
+  profile: BaziProfile,
+  chart: any,
+  weightedWuxing: any,
+  includeHour: boolean,
+): { patternCandidates: any; zipingStructureFacts: ZipingStructureFactsResult } {
+  const actualChart = projectChartToActualNatalPillars(chart, includeHour);
+  const patternCandidates = (includeHour && (chart.patternCandidates || chart.pattern_candidates))
+    || buildPatternCandidates({
+      dayMaster: actualChart.dayMaster || profile.day_master || '',
+      year: actualChart.year,
+      month: actualChart.month,
+      day: actualChart.day,
+      ...(includeHour && actualChart.time ? { time: actualChart.time } : {}),
+      // A saved weighted result includes the internal noon placeholder for an
+      // unknown hour, so only four-pillar profiles may reuse it here.
+      ...(includeHour ? { weightedWuxing } : {}),
+    });
+  const zipingStructureFacts = (includeHour && (
+    chart.zipingStructureFacts
+    || (chart.ziping_structure?.method_version === 'ziping_structure_v2_fact_layer' ? chart.ziping_structure : null)
+  )) || buildZipingStructureFacts({
+    dayMaster: actualChart.dayMaster || profile.day_master || '',
+    dayMasterElement: actualChart.dayMasterElement || profile.day_master_element || '',
+    year: actualChart.year,
+    month: actualChart.month,
+    day: actualChart.day,
+    ...(includeHour && actualChart.time ? { time: actualChart.time } : {}),
+    patternCandidates,
+  });
+  return { patternCandidates, zipingStructureFacts };
 }
 
 export async function getBaziLuckTimeline(
@@ -882,10 +906,24 @@ export async function getBaziDailyFortuneEngineBundle(
     throw new NotFoundError('八字档案不存在');
   }
 
+  const rawChart = getChart(profile);
+  const weightedWuxing = rawChart.weightedWuxing
+    || rawChart.weighted_wuxing_analysis
+    || calculateWeightedWuxingFromChart(rawChart);
+  // The legacy calculator internally inserts noon when the birth hour is
+  // unknown. Resolve a fresh three-pillar structure without that placeholder.
+  const zipingStructureFacts = resolveZipingStructureFacts(
+    profile,
+    rawChart,
+    weightedWuxing,
+    hasKnownBirthHour(profile),
+  ).zipingStructureFacts;
+
   return {
     profile,
     chart: buildBaziChartFromProfile(profile),
     timeline: buildBaziLuckTimelineFromProfile(profile, { day: effectiveDate }),
+    zipingStructureFacts,
   };
 }
 

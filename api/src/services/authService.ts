@@ -663,7 +663,7 @@ export async function refreshAccessToken(input: RefreshTokenInput): Promise<Refr
 export async function logoutUser(accessToken: string): Promise<void> {
   // 用用户自己的 client 调用 signOut，确保撤销的是该用户的 session
   const userClient = createUserSupabaseClient(accessToken);
-  const { error } = await userClient.auth.signOut();
+  const { error } = await userClient.auth.signOut({ scope: 'local' });
 
   if (error) {
     // token 已过期时 signOut 也会报错，此情况对前端无影响（前端清除本地 token 即可）

@@ -234,35 +234,79 @@ async function main(): Promise<void> {
     assert.equal(capturedRequest.timeoutMs, 90000);
     assert.equal(capturedRequest.generationConfig.candidateCount, 1);
     assert.equal(capturedRequest.generationConfig.maxOutputTokens, 16384);
-    assert.equal(capturedRequest.generationConfig.thinkingConfig.thinkingLevel, 'medium');
-    assert.equal(capturedRequest.generationConfig.temperature, 0.2);
+    assert.equal(capturedRequest.generationConfig.thinkingConfig.thinkingLevel, 'low');
+    assert.equal(capturedRequest.generationConfig.temperature, 0);
     assert.equal(capturedRequest.generationConfig.responseMimeType, 'application/json');
     assert.ok(capturedRequest.systemPrompt.includes('不猜测、不补齐、不暗示时柱'));
-    assert.ok(capturedRequest.systemPrompt.includes('user_context 不是命理依据'));
+    assert.ok(capturedRequest.systemPrompt.includes('user_context_for_grounding 不是命理事实'));
     assert.ok(capturedRequest.userPrompt.includes('branch_arch_harmony'));
-    assert.ok(capturedRequest.systemPrompt.includes('MBTI 只能在 Top 2 已完全确定后'));
-    assert.ok(capturedRequest.userPrompt.includes('先只根据命理事实完成五场景比较'));
+    assert.ok(capturedRequest.systemPrompt.includes('不能在正文中直接写出 MBTI、INTJ、ENTP 等类型名称'));
+    assert.ok(capturedRequest.systemPrompt.includes('可以帮助 Top 2 在多个有命理支持的候选之间取舍'));
+    assert.ok(capturedRequest.systemPrompt.includes('现实具体度按已知资料逐级落地'));
+    assert.ok(capturedRequest.systemPrompt.includes('current_goal'));
+    assert.ok(capturedRequest.userPrompt.includes('先根据 fortune_facts_without_user_context 建立五场景候选及支持链'));
     assert.ok(capturedRequest.userPrompt.includes('不可混写事实层级'));
-    assert.ok(capturedRequest.userPrompt.includes('不得自造“财官交战”'));
+    assert.ok(capturedRequest.systemPrompt.includes('可以在事实之上做二次命理归纳'));
+    assert.ok(capturedRequest.userPrompt.includes('综合解释必须能从输入逐项还原'));
     assert.ok(capturedRequest.userPrompt.includes('如果今天涉及……'));
     assert.ok(capturedRequest.systemPrompt.includes('直接展示给普通用户'));
     assert.ok(capturedRequest.systemPrompt.includes('第一句会单独成为首页按钮文字'));
-    assert.ok(capturedRequest.userPrompt.includes('任何干支或十神术语'));
-    assert.ok(capturedRequest.userPrompt.includes('恰好五个完整中文句子'));
-    assert.ok(capturedRequest.userPrompt.includes('270–310 个字符'));
-    assert.ok(capturedRequest.userPrompt.includes('少于 220 个字符的内容无效'));
+    assert.ok(capturedRequest.systemPrompt.includes('命理判断的准确性高于文案形式'));
+    assert.ok(capturedRequest.systemPrompt.includes('不得先写现实结论'));
+    assert.ok(capturedRequest.systemPrompt.includes('每一组现实判断都必须'));
+    assert.ok(capturedRequest.userPrompt.includes('具体命理事实 → 关系是否完整有效'));
+    assert.ok(capturedRequest.userPrompt.includes('五个场景真正竞争'));
+    assert.ok(capturedRequest.userPrompt.includes('直接作用原局柱位的完整流运关系'));
+    assert.ok(capturedRequest.userPrompt.includes('同一时间来源、同一原局目标、同一作用部位的多标签只算一个触发'));
+    assert.ok(capturedRequest.userPrompt.includes('full_match 只表示规则成员齐全'));
+    assert.ok(capturedRequest.userPrompt.includes('不得仅据此写“强烈、强旺、极强、彻底”'));
+    assert.ok(capturedRequest.userPrompt.includes('必须保留“半合、半会、拱合、拱会、暗合、暗会”等限定词'));
+    assert.ok(capturedRequest.userPrompt.includes('X关系成员齐全，可作为Y倾向的辅助材料'));
+    assert.ok(capturedRequest.userPrompt.includes('是否成化与强弱，本层不判断'));
+    assert.ok(capturedRequest.userPrompt.includes('AI 输入不提供展示标签、合化结果或强度分数'));
+    assert.ok(capturedRequest.userPrompt.includes('不得去掉限定词写成完整三合、三会'));
+    assert.ok(capturedRequest.userPrompt.includes('activated_palaces 为空的关系，只能作为流运背景'));
+    assert.ok(capturedRequest.userPrompt.includes('没有“强证据准入门槛”'));
+    assert.ok(capturedRequest.userPrompt.includes('不按固定条数计分'));
+    assert.ok(capturedRequest.userPrompt.includes('降低确定性并写清成立条件，不要禁止输出'));
+    assert.ok(capturedRequest.userPrompt.includes('宫位是增强解释的线索，不是缺少就禁止判断的门槛'));
+    assert.ok(capturedRequest.userPrompt.includes('普通压力或单一七杀不能直接推导具体身体症状'));
+    assert.ok(capturedRequest.userPrompt.includes('出现财星也不等于进账'));
+    assert.ok(capturedRequest.systemPrompt.includes('不得先写现实结论，再从输入中寻找'));
     assert.ok(capturedRequest.userPrompt.includes('第一句会被首页单独展示'));
-    assert.ok(capturedRequest.userPrompt.includes('18–22 个 Unicode 字符（标点计入）的完整预览句'));
-    assert.ok(capturedRequest.userPrompt.includes('不得出现“需要、需、建议、应该、可以、适合、值得、警惕、留意”'));
-    assert.ok(capturedRequest.userPrompt.includes('可能临时接到新任务，原定安排随之改变。'));
+    assert.ok(capturedRequest.userPrompt.includes('目标为 26–30 个 Unicode 字符'));
+    assert.ok(capturedRequest.userPrompt.includes('紧接的第二句必须写出'));
+    assert.ok(capturedRequest.userPrompt.includes('往前预测一步'));
+    assert.ok(capturedRequest.userPrompt.includes('用户可提前观察的一个信号'));
+    assert.ok(capturedRequest.userPrompt.includes('用一句白话接住用户'));
+    assert.ok(capturedRequest.userPrompt.includes('最后才检查长度与语言'));
     assert.ok(capturedRequest.userPrompt.includes('不得擅自写“午后”'));
+    assert.ok(capturedRequest.userPrompt.includes('user_context_for_grounding'));
     assert.ok(capturedRequest.userPrompt.startsWith(DAILY_FORTUNE_DEVELOPER_PROMPT));
     assert.ok(capturedRequest.systemPrompt.startsWith(DAILY_FORTUNE_SYSTEM_PROMPT));
+    const threePillarFactJson = capturedRequest.userPrompt
+      .split('fortune_facts_without_user_context:\n')[1]
+      .split('\n\n以下资料用于判断已有命理信号')[0];
+    const projectedFacts = JSON.parse(threePillarFactJson);
     assert.deepEqual(
-      JSON.parse(capturedRequest.userPrompt.split('fortune_facts:\n')[1]).natal.pillars,
+      projectedFacts.natal.pillars,
       threePillars,
       '三柱事实必须原样进入 prompt'
     );
+    assert.equal(projectedFacts.user_context, undefined);
+    for (const interaction of [
+      ...projectedFacts.mingli_interactions.natal,
+      ...projectedFacts.mingli_interactions.timing,
+    ]) {
+      assert.equal('fact_label' in interaction, false);
+      assert.equal('short_label' in interaction, false);
+      assert.equal('display_group' in interaction, false);
+      assert.equal('aliases' in interaction, false);
+      assert.equal('transform_element' in interaction, false);
+      assert.equal('intensity' in interaction, false);
+      assert.equal(typeof interaction.relation, 'string');
+      assert.ok(Array.isArray(interaction.participants));
+    }
     assert.equal(capturedRequest.userPrompt.includes('domain_candidates'), false);
     assert.equal(capturedRequest.userPrompt.includes('测试用命理作用证据'), false);
 
@@ -292,8 +336,11 @@ async function main(): Promise<void> {
     ];
     await generateDailyFortuneWithAi(facts(fourPillars), {
       async generate(request: any) {
+        const fourPillarFactJson = request.userPrompt
+          .split('fortune_facts_without_user_context:\n')[1]
+          .split('\n\n以下资料用于判断已有命理信号')[0];
         assert.deepEqual(
-          JSON.parse(request.userPrompt.split('fortune_facts:\n')[1]).natal.pillars,
+          JSON.parse(fourPillarFactJson).natal.pillars,
           fourPillars,
           '四柱事实必须原样进入 prompt'
         );
@@ -421,13 +468,18 @@ async function main(): Promise<void> {
     assert.equal(rateLimit.providerDetail, 'rate limit');
     assert.equal(rateLimitCalls, 1, 'provider 失败时不得在同一请求内自动重试');
 
+    let unavailableCalls = 0;
     const unavailableTransport = new GeminiDailyFortuneTransport(
-      async () => new Response('upstream unavailable', { status: 503 })
+      async () => {
+        unavailableCalls += 1;
+        return new Response('upstream unavailable', { status: 503 });
+      }
     );
     await expectAiError(
       generateDailyFortuneWithAi(facts(threePillars), unavailableTransport),
       'provider_unavailable'
     );
+    assert.equal(unavailableCalls, 3, 'transient 5xx receives two bounded retries');
 
     const authTransport = new GeminiDailyFortuneTransport(
       async () => new Response('unauthorized', { status: 401 })
@@ -438,8 +490,10 @@ async function main(): Promise<void> {
     );
     assert.equal(auth.retryable, false);
 
+    let networkCalls = 0;
     const networkTransport = new GeminiDailyFortuneTransport(
       async () => {
+        networkCalls += 1;
         throw new TypeError('connection reset');
       }
     );
@@ -447,6 +501,25 @@ async function main(): Promise<void> {
       generateDailyFortuneWithAi(facts(threePillars), networkTransport),
       'network'
     );
+    assert.equal(networkCalls, 3, 'transient network failures receive two bounded retries');
+
+    let recoveredNetworkCalls = 0;
+    const recoveredNetworkTransport = new GeminiDailyFortuneTransport(
+      async () => {
+        recoveredNetworkCalls += 1;
+        if (recoveredNetworkCalls === 1) throw new TypeError('connection reset');
+        return new Response(JSON.stringify(providerResponse(validContent())), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+    );
+    const recovered = await generateDailyFortuneWithAi(
+      facts(threePillars),
+      recoveredNetworkTransport,
+    );
+    assert.equal(recoveredNetworkCalls, 2);
+    assert.equal(recovered.overall.headline, validContent().overall.headline);
 
     const tooLargeTransport = new GeminiDailyFortuneTransport(
       async () => new Response('', {

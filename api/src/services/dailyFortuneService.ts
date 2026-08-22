@@ -29,7 +29,7 @@ import {
 } from '../utils/dailyFortuneAi';
 import { NotFoundError, ValidationError } from '../utils/errors';
 
-const GENERATION_CONFIG_VERSION = 'daily_fortune_gemini_v6';
+const GENERATION_CONFIG_VERSION = 'daily_fortune_gemini_v7';
 const OUTPUT_SCHEMA_VERSION = 'daily_fortune_output_v1';
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const DEFAULT_JOIN_RETRY_MS = 1_000;
@@ -541,6 +541,15 @@ function buildTimingPillar(
       : {}),
     ...(typeof value.end_year === 'number' && Number.isFinite(value.end_year)
       ? { end_year: value.end_year }
+      : {}),
+    ...(typeof value.age_start === 'number' && Number.isFinite(value.age_start)
+      ? { age_start: value.age_start }
+      : {}),
+    ...(typeof value.age_end === 'number' && Number.isFinite(value.age_end)
+      ? { age_end: value.age_end }
+      : {}),
+    ...(value.label === null || stringOrUndefined(value.label)
+      ? { label: value.label === null ? null : stringOrUndefined(value.label) }
       : {}),
     ...(value.start_date === null || stringOrUndefined(value.start_date)
       ? { start_date: value.start_date === null ? null : stringOrUndefined(value.start_date) }

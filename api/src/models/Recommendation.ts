@@ -6,10 +6,11 @@ import type {
   DailyFortunePillar,
   DailyFortuneTimingPillar,
 } from './DailyFortune';
+import type { MediumInsightFactReference } from './MediumInsight';
 
-export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v7' as const;
-export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v7' as const;
-export const RECOMMENDATION_TAXONOMY_VERSION = 'recommendation_taxonomy_v1' as const;
+export const RECOMMENDATION_CONTRACT_VERSION = 'recommendation_ai_v8' as const;
+export const RECOMMENDATION_PROMPT_VERSION = 'recommendation_prompt_v10' as const;
+export const RECOMMENDATION_TAXONOMY_VERSION = 'recommendation_taxonomy_v2' as const;
 export const RECOMMENDATION_CANDIDATE_POOL_VERSION = 'recommendation_pool_v2' as const;
 export const RECOMMENDATION_CANDIDATE_POOL_SIZE = 30 as const;
 export const RECOMMENDATION_DISPLAY_DECK_COUNT = 10 as const;
@@ -408,6 +409,8 @@ export interface RecommendationAiInput {
   effective_date: string;
   timezone: string;
   fortune_facts: RecommendationHardFactPackage;
+  /** Fixed deterministic structure foundation shared by discovery and detail. */
+  structure_facts: MediumInsightFactReference[];
   time_windows: RecommendationTimeWindow[];
   available_fact_refs: RecommendationFactReference[];
   reality_context: RecommendationRealityContext;

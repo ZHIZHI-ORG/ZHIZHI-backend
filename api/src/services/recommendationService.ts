@@ -34,6 +34,7 @@ import {
   RecommendationSelectionContext,
   RecommendationTimeWindow,
 } from '../models/Recommendation';
+import { MediumInsightFactReference } from '../models/MediumInsight';
 import { userRepository } from '../database/repositories/UserRepository';
 import { getBaziDailyFortuneEngineBundle } from './baziService';
 import {
@@ -56,6 +57,10 @@ import {
   projectRecommendationPillar,
   RecommendationTimeWindowBudgetError,
 } from './recommendationTimeWindows';
+import {
+  MediumInsightFactError,
+  projectMediumInsightFacts,
+} from './mediumInsightFactProjector';
 
 const OUTPUT_SCHEMA_VERSION = 'recommendation_output_v3';
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
@@ -182,6 +187,28 @@ async function resolveRecommendationsWithDependencies(
   }
 
   const realityContext = buildRealityContext(facts);
+  let structureFacts: MediumInsightFactReference[];
+  try {
+    const projection = projectMediumInsightFacts({
+      profile: bundle.profile,
+      facts,
+      zipingStructureFacts: bundle.zipingStructureFacts,
+    });
+    structureFacts = projection.snapshot.facts.filter((fact) => (
+      fact.source === 'month_command'
+      || fact.source === 'day_master_capacity'
+      || fact.source === 'pattern_candidates'
+      || fact.source === 'yongshen_basis'
+    ));
+    if (structureFacts.length !== 4) {
+      return unavailable('FACTS_INCOMPLETE', false);
+    }
+  } catch (error) {
+    if (error instanceof MediumInsightFactError) {
+      return unavailable(error.code, false);
+    }
+    throw error;
+  }
 
   // This is the recommendation content identity for a profile, not merely its
   // updated_at timestamp. It changes when deterministic birth/chart facts or
@@ -192,6 +219,7 @@ async function resolveRecommendationsWithDependencies(
     prompt_version: RECOMMENDATION_PROMPT_VERSION,
     taxonomy_version: RECOMMENDATION_TAXONOMY_VERSION,
     profile: profileRevisionPayload(bundle.profile),
+    structure_facts: structureFacts,
     reality_context: realityContext,
   }));
 
@@ -277,6 +305,7 @@ async function resolveRecommendationsWithDependencies(
     effectiveDate: dateContext.effectiveDate,
     timezone: input.timezone,
     timeWindows,
+    structureFacts,
     realityContext,
     preferenceSnapshot,
   });
@@ -543,6 +572,7 @@ function buildRecommendationAiInput(input: {
   effectiveDate: string;
   timezone: string;
   timeWindows: RecommendationTimeWindow[];
+  structureFacts: MediumInsightFactReference[];
   realityContext: RecommendationRealityContext;
   preferenceSnapshot: RecommendationPreferenceSnapshot;
 }): RecommendationAiInput {
@@ -557,6 +587,7 @@ function buildRecommendationAiInput(input: {
     effective_date: input.effectiveDate,
     timezone: input.timezone,
     fortune_facts: hardFacts,
+    structure_facts: input.structureFacts,
     time_windows: input.timeWindows,
     available_fact_refs: availableFactRefs,
     reality_context: input.realityContext,

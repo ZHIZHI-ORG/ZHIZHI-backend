@@ -304,9 +304,9 @@ function artifactRow(
       liuri: '己丑',
     },
     content_json: content,
-    prompt_version: 'daily_fortune_prompt_v11',
+    prompt_version: 'daily_fortune_prompt_v16',
     output_schema_version: 'daily_fortune_output_v1',
-    generation_config_version: 'daily_fortune_gemini_v6',
+    generation_config_version: 'daily_fortune_gemini_v7',
     model_id: 'gemini-test-pinned',
     created_at: '2026-07-23T14:30:00.000Z',
     ready_at: '2026-07-23T14:30:01.000Z',
@@ -346,7 +346,7 @@ async function main(): Promise<void> {
       }
     }
     const comparisonCases = dailyFortunePromptEvalCases.filter((item) => (
-      item.comparison_group === 'study-context-neutrality'
+      item.comparison_group === 'study-context-grounding'
     ));
     assert.equal(comparisonCases.length, 2);
     const withoutContext = { ...comparisonCases[0].facts, user_context: null };

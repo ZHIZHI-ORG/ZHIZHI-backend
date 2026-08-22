@@ -55,6 +55,10 @@ import fortuneDailyV2Handler from './api/v2/fortune/daily';
 import recommendationNextHandler from './api/v2/recommendations/next';
 import recommendationEventsHandler from './api/v2/recommendations/events';
 import recommendationBatchHandler from './api/v2/recommendations/[batchId]';
+import mediumInsightDailyHandler from './api/v2/insights/medium/daily';
+import mediumInsightEventsHandler from './api/v2/insights/medium/events';
+import insightDetailsV2Handler from './api/v2/insights/details';
+import insightFollowUpsV2Handler from './api/v2/insights/follow-ups';
 
 // 洞察模块（对应 simple.md §6 洞察分析模块）
 import insightCardsHandler    from './api/insights/cards';
@@ -110,6 +114,10 @@ const routes: Record<string, any> = {
   '/api/v2/fortune/daily': fortuneDailyV2Handler,
   '/api/v2/recommendations/next': recommendationNextHandler,
   '/api/v2/recommendations/events': recommendationEventsHandler,
+  '/api/v2/insights/medium/daily': mediumInsightDailyHandler,
+  '/api/v2/insights/medium/events': mediumInsightEventsHandler,
+  '/api/v2/insights/details': insightDetailsV2Handler,
+  '/api/v2/insights/follow-ups': insightFollowUpsV2Handler,
 
   // 洞察模块（精确路径，动态 /api/insights/detail/:category 在下方处理）
   '/api/insights/cards':    insightCardsHandler,
@@ -147,6 +155,10 @@ const server = http.createServer(async (req, res) => {
     && pathname !== '/api/v2/fortune/daily'
     && pathname !== '/api/v2/recommendations/next'
     && pathname !== '/api/v2/recommendations/events'
+    && pathname !== '/api/v2/insights/medium/daily'
+    && pathname !== '/api/v2/insights/medium/events'
+    && pathname !== '/api/v2/insights/details'
+    && pathname !== '/api/v2/insights/follow-ups'
     && !/^\/api\/v2\/recommendations\/[^/]+$/.test(pathname)
   ) {
     res.writeHead(200);

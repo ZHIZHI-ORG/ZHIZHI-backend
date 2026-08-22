@@ -22,12 +22,15 @@ export interface ZipingStructureInput {
   year: PillarData;
   month: PillarData;
   day: PillarData;
-  time: PillarData;
+  /** Missing birth hour is represented by omission, never a synthetic noon pillar. */
+  time?: PillarData;
   patternCandidates?: PatternCandidatesResult;
 }
 
 export interface ZipingStructureFactsResult {
   method_version: 'ziping_structure_v2_fact_layer';
+  hour_precision: 'known' | 'unknown';
+  observed_pillars: PillarPosition[];
   gan_zhi_effects: GanZhiEffectsFacts;
   month_command: MonthCommandFacts;
   day_master_facts: DayMasterFacts;
@@ -477,6 +480,7 @@ const TONGGUAN_BY_CONFLICT: Record<string, string> = {
 };
 
 export function buildZipingStructureFacts(input: ZipingStructureInput): ZipingStructureFactsResult {
+  const hourPrecision = input.time ? 'known' : 'unknown';
   const ganZhiEffects = buildGanZhiEffects(input);
   const monthCommand = buildMonthCommandFacts(input, ganZhiEffects);
   const dayMasterFacts = buildDayMasterFacts(input, ganZhiEffects);
@@ -485,6 +489,8 @@ export function buildZipingStructureFacts(input: ZipingStructureInput): ZipingSt
 
   return {
     method_version: 'ziping_structure_v2_fact_layer',
+    hour_precision: hourPrecision,
+    observed_pillars: pillarItems(input).map((item) => item.position),
     gan_zhi_effects: ganZhiEffects,
     month_command: monthCommand,
     day_master_facts: dayMasterFacts,
@@ -493,6 +499,9 @@ export function buildZipingStructureFacts(input: ZipingStructureInput): ZipingSt
     notes: [
       '子平结构引擎 V2 当前只输出事实材料，不输出最终喜用忌、分数、权重或裁决。',
       '格局候选沿用 pattern_candidates_v1；本事实层会输出去裁决化的候选材料副本。',
+      ...(hourPrecision === 'unknown'
+        ? ['出生时辰未知；所有空数组只表示已知三柱范围内未见，不表示完整命盘不存在。']
+        : []),
     ],
   };
 }
@@ -817,8 +826,20 @@ function buildYongshenBasisFacts(
     ...dayMasterFacts.pressure_facts.officer_killing,
     ...dayMasterFacts.pressure_facts.output,
   ];
-  const fuyiDirections = buildFuyiDirections(dayMasterFacts, supportingFacts, pressureFacts);
-  const illnessFacts = buildIllnessFacts(dayMasterFacts, climateProblems, supportingFacts, pressureFacts);
+  const allowAbsenceInferences = Boolean(input.time);
+  const fuyiDirections = buildFuyiDirections(
+    dayMasterFacts,
+    supportingFacts,
+    pressureFacts,
+    allowAbsenceInferences,
+  );
+  const illnessFacts = buildIllnessFacts(
+    dayMasterFacts,
+    climateProblems,
+    supportingFacts,
+    pressureFacts,
+    allowAbsenceInferences,
+  );
   const remedyMaterials = illnessFacts.map(illness => buildRemedyMaterial(input, ganZhiEffects, illness));
   const tongguanConflicts = buildTongguanConflicts(input, ganZhiEffects);
   const mediatingElements = tongguanConflicts.map(conflict => ({
@@ -960,7 +981,9 @@ function affectedPatternCandidateNames(
 }
 
 function pillarItems(input: ZipingStructureInput): Array<{ position: PillarPosition; pillar: PillarData }> {
-  return POSITIONS.map(position => ({ position, pillar: input[position] }));
+  return POSITIONS
+    .map(position => ({ position, pillar: input[position] }))
+    .filter((item): item is { position: PillarPosition; pillar: PillarData } => Boolean(item.pillar));
 }
 
 function hiddenStemFacts(pillar: PillarData, position: PillarPosition): HiddenStemFact[] {
@@ -1111,6 +1134,7 @@ function hiddenTenGodFacts(
   ganZhiEffects: GanZhiEffectsFacts,
 ): TenGodLocationFact[] {
   const pillar = input[position];
+  if (!pillar) return [];
   return (pillar?.hiddenStems || [])
     .filter(hidden => Boolean(hidden.tenGod))
     .map((hidden, index) => ({
@@ -1137,13 +1161,13 @@ function buildSpecialPatternMaterials(
     .filter(([, count]) => count >= 4)
     .map(([element]) => element);
 
-  if (roots.length === 0 && supportFacts.length === 0 && pressureFacts.length > 0) {
+  if (input.time && roots.length === 0 && supportFacts.length === 0 && pressureFacts.length > 0) {
     materials.push({
       type: 'follow_weak_material',
       basis: ['日主无根气事实', '印比帮身事实未出现', '财官食伤压力事实出现'],
     });
   }
-  if (roots.length >= 3 && supportFacts.length >= 3 && pressureFacts.length === 0) {
+  if (input.time && roots.length >= 3 && supportFacts.length >= 3 && pressureFacts.length === 0) {
     materials.push({
       type: 'follow_strong_material',
       basis: ['日主根气多见', '印比帮身事实多见', '财官食伤压力事实未出现'],
@@ -1252,6 +1276,7 @@ function availableElementFacts(
 
   POSITIONS.forEach((position) => {
     const pillar = input[position];
+    if (!pillar) return;
     const stemElement = pillar.stemElement || GAN_WUXING[pillar.stem] || '';
     if (wanted.has(stemElement) && pillar.tenGod !== '日主') {
       facts.push({
@@ -1316,9 +1341,10 @@ function buildFuyiDirections(
   dayMasterFacts: DayMasterFacts,
   supportingFacts: TenGodLocationFact[],
   pressureFacts: TenGodLocationFact[],
+  allowAbsenceInferences: boolean,
 ): YongshenBasisFacts['fuyi']['rule_suggested_directions'] {
   const directions: YongshenBasisFacts['fuyi']['rule_suggested_directions'] = [];
-  if (dayMasterFacts.roots.length === 0 || supportingFacts.length === 0) {
+  if (allowAbsenceInferences && (dayMasterFacts.roots.length === 0 || supportingFacts.length === 0)) {
     directions.push({
       direction: '印比扶身材料',
       basis: ['日主根气或印比帮身事实不足时，传统扶抑会记录印比材料'],
@@ -1344,9 +1370,11 @@ function buildIllnessFacts(
   climateProblems: YongshenBasisFacts['tiaohou']['climate_problems'],
   supportingFacts: TenGodLocationFact[],
   pressureFacts: TenGodLocationFact[],
+  allowAbsenceInferences: boolean,
 ): YongshenBasisFacts['bingyao']['illness_facts'] {
   const facts: YongshenBasisFacts['bingyao']['illness_facts'] = [];
-  const hasLimitedSupport = dayMasterFacts.roots.length === 0 || supportingFacts.length === 0;
+  const hasLimitedSupport = allowAbsenceInferences
+    && (dayMasterFacts.roots.length === 0 || supportingFacts.length === 0);
 
   if (dayMasterFacts.pressure_facts.wealth.length > 0 && hasLimitedSupport) {
     facts.push({ type: 'wealth_pressure_with_limited_support', basis: ['财星事实出现', '根气或印比材料不足'] });
@@ -1357,10 +1385,10 @@ function buildIllnessFacts(
   if (dayMasterFacts.pressure_facts.output.length > 0 && hasLimitedSupport) {
     facts.push({ type: 'output_pressure_with_limited_support', basis: ['食伤事实出现', '根气或印比材料不足'] });
   }
-  if (supportingFacts.filter(item => RESOURCE_TEN_GODS.has(item.ten_god)).length >= 3 && dayMasterFacts.pressure_facts.wealth.length === 0) {
+  if (allowAbsenceInferences && supportingFacts.filter(item => RESOURCE_TEN_GODS.has(item.ten_god)).length >= 3 && dayMasterFacts.pressure_facts.wealth.length === 0) {
     facts.push({ type: 'resource_many_without_wealth_material', basis: ['印星材料多见', '财星材料未见'] });
   }
-  if (supportingFacts.filter(item => PEER_TEN_GODS.has(item.ten_god)).length >= 3 && dayMasterFacts.pressure_facts.wealth.length === 0) {
+  if (allowAbsenceInferences && supportingFacts.filter(item => PEER_TEN_GODS.has(item.ten_god)).length >= 3 && dayMasterFacts.pressure_facts.wealth.length === 0) {
     facts.push({ type: 'peer_many_without_wealth_material', basis: ['比劫材料多见', '财星材料未见'] });
   }
   if (climateProblems.some(item => item.type === 'cold' || item.type === 'dampness')) {
@@ -1418,18 +1446,6 @@ function buildTongguanConflicts(
         mediating_element_by_rule: mediating,
       });
     });
-
-  const elementPresence = elementCountsInChart(input);
-  Object.keys(TONGGUAN_BY_CONFLICT).forEach((key) => {
-    const [left, right] = key.split('');
-    if (!left || !right || !elementPresence[left] || !elementPresence[right]) return;
-    const mediating = TONGGUAN_BY_CONFLICT[key];
-    conflictFacts.push({
-      elements: [left, right],
-      source_relations: [`原局同时见${left}${right}两气，记录通关材料`],
-      mediating_element_by_rule: mediating,
-    });
-  });
 
   return uniqueObjects(conflictFacts, item => `${item.elements.join('')}:${item.mediating_element_by_rule}:${item.source_relations.join('|')}`);
 }
